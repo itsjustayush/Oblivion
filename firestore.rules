@@ -1,0 +1,89 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+
+    // --- User Profile Rules ---
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.keys().hasAll(['name']) &&
+               data.name is string && data.name.size() <= 100;
+      }
+      allow get, list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidUser(incoming());
+      allow update: if isOwner(userId) && isValidUser(incoming());
+    }
+
+    // --- Notes Rules ---
+    match /users/{userId}/notes/{noteId} {
+      function isValidNote(data) {
+        return data.keys().hasAll(['userId', 'title', 'body', 'updatedAt']) &&
+               data.userId == userId &&
+               data.title is string && data.title.size() <= 1000 &&
+               data.body is string && data.body.size() <= 50000;
+      }
+      allow read, list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidNote(incoming());
+      allow update: if isOwner(userId) && isValidNote(incoming());
+      allow delete: if isOwner(userId);
+    }
+
+    // --- Tasks Rules ---
+    match /users/{userId}/tasks/{taskId} {
+      function isValidTask(data) {
+        return data.keys().hasAll(['userId', 'text', 'done', 'createdAt']) &&
+               data.userId == userId &&
+               data.text is string && data.text.size() <= 1000 &&
+               data.done is bool;
+      }
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidTask(incoming());
+      allow update: if isOwner(userId) && isValidTask(incoming());
+      allow delete: if isOwner(userId);
+    }
+
+    // --- Events Rules ---
+    match /users/{userId}/events/{eventId} {
+      function isValidEvent(data) {
+        return data.keys().hasAll(['userId', 'title', 'when']) &&
+               data.userId == userId &&
+               data.title is string && data.title.size() <= 1000 &&
+               data.when is string && data.when.size() <= 100;
+      }
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidEvent(incoming());
+      allow update: if isOwner(userId) && isValidEvent(incoming());
+      allow delete: if isOwner(userId);
+    }
+
+    // --- Integrations Rules ---
+    match /users/{userId}/integrations/{integrationId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // --- Sessions Rules ---
+    match /users/{userId}/sessions/{sessionId} {
+      function isValidSession(data) {
+        return data.keys().hasAll(['userId', 'duration', 'timestamp', 'day']) &&
+               data.userId == userId &&
+               data.duration is number &&
+               data.timestamp is number &&
+               data.day is string && data.day.size() <= 20;
+      }
+      allow read, list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidSession(incoming());
+      allow update: if false; 
+      allow delete: if isOwner(userId);
+    }
+  }
+}

@@ -1,0 +1,88 @@
+{
+  "entities": {
+    "user": {
+      "title": "User Profile",
+      "description": "Stores user settings and preferences.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "settings": { "type": "object" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name"]
+    },
+    "note": {
+      "title": "Note",
+      "description": "A user's private note.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["userId", "title"]
+    },
+    "task": {
+      "title": "Task",
+      "description": "A checklist item.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "text": { "type": "string" },
+        "done": { "type": "boolean" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["userId", "text", "done"]
+    },
+    "event": {
+      "title": "Event",
+      "description": "A scheduled event in the agenda.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "when": { "type": "string" }
+      },
+      "required": ["userId", "title", "when"]
+    },
+    "session": {
+      "title": "Focus Session",
+      "description": "A completed pomodoro focus session.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "duration": { "type": "number" },
+        "timestamp": { "type": "number" },
+        "day": { "type": "string" }
+      },
+      "required": ["userId", "duration", "timestamp", "day"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "user",
+      "description": "User profile data."
+    },
+    "users/{userId}/notes/{noteId}": {
+      "schema": "note",
+      "description": "Collection of notes for a specific user."
+    },
+    "users/{userId}/tasks/{taskId}": {
+      "schema": "task",
+      "description": "Collection of tasks for a specific user."
+    },
+    "users/{userId}/events/{eventId}": {
+      "schema": "event",
+      "description": "Collection of events for a specific user."
+    },
+    "users/{userId}/sessions/{sessionId}": {
+      "schema": "session",
+      "description": "Historical focus sessions."
+    },
+    "users/{userId}/integrations/{integrationId}": {
+      "schema": "object",
+      "description": "Third-party tokens and settings."
+    }
+  }
+}

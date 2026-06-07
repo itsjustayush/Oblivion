@@ -1,0 +1,2316 @@
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+'use client'
+
+import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import { motion, AnimatePresence } from 'motion/react'
+import {
+  Home, StickyNote, ListChecks, Timer, CalendarDays, Music2, Settings as SettingsIcon,
+  Maximize2, Minimize2, Plus, Trash2, X, Search, Play, Pause, RotateCcw, SkipForward,
+  Check, Sparkles, Quote as QuoteIcon, ChevronRight,
+  Navigation, CloudSun, Thermometer, Wind, Droplets, Info,
+  BarChart2, Flame, Zap, Brain, LayoutList, Coffee
+} from 'lucide-react'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
+import { Button } from '@/src/components/ui/button'
+import { Input } from '@/src/components/ui/input'
+import { Slider } from '@/src/components/ui/slider'
+import { Switch } from '@/src/components/ui/switch'
+import { Textarea } from '@/src/components/ui/textarea'
+import { toast, Toaster } from 'sonner'
+
+/* ----------------------------- Background Library ---------------------------- */
+const BACKGROUNDS = [
+  { id: 'tokyo-rain-1',  name: 'Tokyo Rain',     url: 'https://images.unsplash.com/photo-1600686212592-0ca8a392c945?auto=format&fit=crop&w=2400&q=85' },
+  { id: 'tokyo-rain-2',  name: 'Neon Alley',     url: 'https://images.unsplash.com/photo-1606291121612-52a61ff40095?auto=format&fit=crop&w=2400&q=85' },
+  { id: 'cyber-1',       name: 'Cyber Rain',     url: 'https://images.unsplash.com/photo-1613046883984-dcf0c289b896?auto=format&fit=crop&w=2400&q=85' },
+  { id: 'cyber-2',       name: 'Neon Reflection',url: 'https://images.unsplash.com/photo-1613046884857-9eebb02e6ce3?auto=format&fit=crop&w=2400&q=85' },
+  { id: 'cyber-3',       name: 'Night City',     url: 'https://images.unsplash.com/photo-1600998837340-4887228e311f?auto=format&fit=crop&w=2400&q=85' },
+  { id: 'cozy-1',        name: 'Cozy Room',      url: 'https://images.unsplash.com/photo-1652512455891-11933272bc1f?auto=format&fit=crop&w=2400&q=85' },
+]
+
+const PLAYLISTS = [
+  { id: '0owPbYZr8bqzFfpzLmP8UV', name: 'Rainy Day Lofi' },
+  { id: '37i9dQZF1DWWQRwui0ExPn', name: 'Lofi Beats' },
+  { id: '37i9dQZF1DXcCnTAt8CfNe', name: 'Rainy Day' },
+  { id: '37i9dQZF1DXbITWG1ZJKYt', name: 'Jazz Café' },
+  { id: '37i9dQZF1DWZeKCadgRdKQ', name: 'Deep Focus' },
+  { id: '37i9dQZF1DX3Ogo9pFvBkY', name: 'Ambient Study' },
+  { id: '37i9dQZF1DX4sWsp69URu3', name: 'Nature Sounds' },
+  { id: '37i9dQZF1DX8Ueb99uayOV', name: 'Lofi Sleep' },
+]
+
+import { initializeApp } from 'firebase/app';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, Timestamp, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import firebaseConfig from '../firebase-applet-config.json';
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+const auth = getAuth(app);
+const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://www.googleapis.com/auth/calendar.events.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/tasks');
+
+/* ----------------------------- Firestore Error Handler ----------------------------- */
+function handleFirestoreError(error: unknown, op: string, path: string) {
+  const errInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    operationType: op,
+    path: path,
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+    }
+  }
+  console.error('Firestore Error:', JSON.stringify(errInfo))
+  toast.error(`Cloud Sync Error: ${op}`)
+  throw new Error(JSON.stringify(errInfo))
+}
+
+/* ----------------------------- Persistence Hook ----------------------------- */
+const useLocal = <T,>(key: string, initial: T): [T, React.Dispatch<React.SetStateAction<T>>] => {
+  const [val, setVal] = useState<T>(initial)
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? window.localStorage.getItem(key) : null
+      if (raw !== null) setVal(JSON.parse(raw))
+    } catch {}
+  }, [key])
+  useEffect(() => {
+    try { if (typeof window !== 'undefined') window.localStorage.setItem(key, JSON.stringify(val)) } catch {}
+  }, [key, val])
+  return [val, setVal]
+}
+
+const useSynced = <T,>(key: string, initial: T, user: User | null): [T, React.Dispatch<React.SetStateAction<T>>] => {
+  const [val, setVal] = useState<T>(initial)
+  
+  // Load from local storage initially
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(key)
+      if (raw !== null) setVal(JSON.parse(raw))
+    } catch {}
+  }, [key])
+
+  // If user is logged in, listen to Firestore
+  useEffect(() => {
+    if (!user) return
+    const collName = key.split('.')[1] || 'settings'
+    if (key === 'oblivion.settings') {
+      return onSnapshot(doc(db, 'users', user.uid), (snap) => {
+        if (snap.exists()) setVal(snap.data() as T)
+      }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}`))
+    }
+  }, [user, key])
+
+  // Save to local storage and Firestore
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(key, JSON.stringify(val))
+      if (user) {
+        if (key === 'oblivion.settings') {
+          setDoc(doc(db, 'users', user.uid), val as any, { merge: true })
+        }
+      }
+    } catch {}
+  }, [key, val, user])
+
+  return [val, setVal]
+}
+
+const greetingFor = (hour: number, name?: string) => {
+  const N = name || 'friend'
+  if (hour < 5)  return [`Late night grind, ${N}?`, 'The night is yours.', 'One quiet hour at a time.']
+  if (hour < 12) return [`Good morning, ${N}.`, `Let's make today count.`, 'Soft start. Steady focus.']
+  if (hour < 17) return [`Making strides this afternoon, ${N}?`, 'Stay in the flow.', 'One task at a time.']
+  if (hour < 21) return [`Good evening, ${N}.`, `Let's focus for a while.`, 'Wind down with intention.']
+  return [`Late hours suit you, ${N}.`, 'Slow is smooth, smooth is fast.', 'A quiet mind goes far.']
+}
+
+/* ----------------------------- Rain ----------------------------- */
+const Rain = React.memo(function Rain({ intensity = 60 }: { intensity: number }) {
+  const drops = useMemo(() => {
+    const count = Math.max(0, Math.min(220, Math.round(intensity * 2.2)))
+    return Array.from({ length: count }).map((_, i) => ({
+      i,
+      left: Math.random() * 100,
+      duration: 0.6 + Math.random() * 1.2,
+      delay: -Math.random() * 2,
+      height: 60 + Math.random() * 100,
+      opacity: 0.4 + Math.random() * 0.5,
+    }))
+  }, [intensity])
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      {drops.map(d => (
+        <span key={d.i} className="rain-drop"
+          style={{ left: `${d.left}%`, height: `${d.height}px`, animationDuration: `${d.duration}s`, animationDelay: `${d.delay}s`, opacity: d.opacity }} />
+      ))}
+    </div>
+  )
+})
+
+/* ----------------------------- Weather Widget ----------------------------- */
+interface WeatherData {
+  temp: number;
+  condition: string;
+  location: string;
+  code: number;
+  humidity: number;
+  windSpeed: number;
+  feelsLike: number;
+  lastUpdated: string;
+  forecast: {
+    date: string;
+    maxTemp: number;
+    minTemp: number;
+    code: number;
+  }[];
+}
+
+function WeatherWidget() {
+  const [data, setData] = useState<WeatherData | null>(null);
+  const [showDetail, setShowDetail] = useState(false);
+
+  const getWeatherDescription = (code: number) => {
+    if (code === 0) return 'Clear';
+    if (code <= 3) return 'Partly Cloudy';
+    if (code <= 48) return 'Foggy';
+    if (code <= 55) return 'Drizzle';
+    if (code <= 65) return 'Rainy';
+    if (code <= 77) return 'Snowy';
+    if (code <= 82) return 'Showers';
+    if (code <= 99) return 'Thunderstorm';
+    return 'Cloudy';
+  };
+
+  const getWeatherIcon = (code: number) => {
+    if (code === 0) return '☀️';
+    if (code <= 2) return '☀️';
+    if (code === 3) return '⛅';
+    if (code <= 48) return '🌫️';
+    if (code <= 55) return '💧';
+    if (code <= 65) return '🌧️';
+    if (code <= 77) return '❄️';
+    if (code <= 82) return '🌦️';
+    if (code <= 99) return '⛈️';
+    return '☁️';
+  };
+
+  const fetchWeather = useCallback(async (lat: number, lon: number) => {
+    try {
+      const [weatherRes, geoRes] = await Promise.all([
+        fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&_=${Date.now()}`),
+        fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=11&addressdetails=1`)
+      ]);
+
+      const weatherJson = await weatherRes.json();
+      const geoJson = await geoRes.json();
+
+      const address = geoJson.address;
+      const locationName = address.city || address.town || address.village || address.suburb || address.county || 'Local Area';
+      
+      const current = weatherJson.current;
+      const daily = weatherJson.daily;
+      
+      const forecast = daily.time.slice(0, 5).map((date: string, i: number) => ({
+        date,
+        maxTemp: Math.round(daily.temperature_2m_max[i]),
+        minTemp: Math.round(daily.temperature_2m_min[i]),
+        code: daily.weather_code[i]
+      }));
+
+      setData({
+        temp: Math.round(current.temperature_2m),
+        condition: getWeatherDescription(current.weather_code),
+        location: locationName,
+        code: current.weather_code,
+        humidity: current.relative_humidity_2m,
+        windSpeed: current.wind_speed_10m,
+        feelsLike: Math.round(current.apparent_temperature),
+        lastUpdated: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        forecast
+      });
+    } catch (err) {
+      console.error('Weather fetch error:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    const initWeather = () => {
+      if ("geolocation" in navigator) {
+        navigator.geolocation.getCurrentPosition(
+          (pos) => fetchWeather(pos.coords.latitude, pos.coords.longitude),
+          () => fetchWeather(22.5726, 88.3639), // Default to Kolkata
+          { enableHighAccuracy: true, timeout: 10000 }
+        );
+      } else {
+        fetchWeather(22.5726, 88.3639);
+      }
+    };
+
+    initWeather();
+    const interval = setInterval(initWeather, 1800000); // 30 minutes
+    return () => clearInterval(interval);
+  }, [fetchWeather]);
+
+  if (!data) return (
+    <div className="absolute top-8 left-8 z-20 glass px-4 py-2 rounded-2xl animate-pulse cursor-wait">
+      <div className="w-24 h-8 bg-white/5 rounded-md" />
+    </div>
+  );
+
+  return (
+    <>
+      <motion.div 
+        initial={{ opacity: 0, x: -10 }} 
+        animate={{ opacity: 1, x: 0 }}
+        onClick={() => setShowDetail(true)}
+        className="absolute top-8 left-8 flex items-center gap-3.5 z-20 glass px-4 py-2.5 rounded-2xl group hover:bg-white/10 transition-all duration-500 border border-white/5 hover:border-white/10 cursor-pointer active:scale-95"
+      >
+        <div className="text-2xl drop-shadow-lg group-hover:scale-110 transition-transform duration-500">
+          {getWeatherIcon(data.code)}
+        </div>
+        <div className="flex flex-col">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-sm font-bold text-white tracking-tight">{data.temp}°C</span>
+            <span className="text-[10px] text-white/50 font-medium uppercase tracking-widest">{data.condition}</span>
+          </div>
+          <div className="text-[9px] text-white/30 uppercase tracking-[0.15em] font-bold mt-0.5 max-w-[120px] truncate flex items-center gap-1">
+            <Navigation className="h-2 w-2" /> {data.location}
+          </div>
+        </div>
+      </motion.div>
+
+      <Panel 
+        open={showDetail} 
+        onClose={() => setShowDetail(false)} 
+        title="Weather Forecast" 
+        icon={<CloudSun className="h-4 w-4" />}
+        width="max-w-md"
+      >
+        <div className="space-y-6 pt-2">
+          {/* Current Detail */}
+          <div className="p-6 rounded-3xl bg-white/5 border border-white/5 flex flex-col items-center text-center">
+            <div className="text-6xl mb-4 drop-shadow-2xl">{getWeatherIcon(data.code)}</div>
+            <div className="text-5xl font-bold tracking-tighter mb-1">{data.temp}°C</div>
+            <div className="text-white/60 font-medium text-sm mb-4">{data.condition} in {data.location}</div>
+            
+            <div className="grid grid-cols-3 gap-8 w-full pt-4 border-t border-white/5">
+              <div className="flex flex-col items-center gap-1">
+                <Thermometer className="h-4 w-4 text-white/40" />
+                <div className="text-[10px] uppercase tracking-widest text-white/30 font-bold">Feels</div>
+                <div className="text-xs font-bold">{data.feelsLike}°</div>
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <Droplets className="h-4 w-4 text-white/40" />
+                <div className="text-[10px] uppercase tracking-widest text-white/30 font-bold">Humidity</div>
+                <div className="text-xs font-bold">{data.humidity}%</div>
+              </div>
+              <div className="flex flex-col items-center gap-1">
+                <Wind className="h-4 w-4 text-white/40" />
+                <div className="text-[10px] uppercase tracking-widest text-white/30 font-bold">Wind</div>
+                <div className="text-xs font-bold">{data.windSpeed} <span className="text-[8px] opacity-50">km/h</span></div>
+              </div>
+            </div>
+          </div>
+
+          {/* 5-Day Forecast */}
+          <div className="space-y-3">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold px-1">5-Day Forecast</div>
+            <div className="space-y-2">
+              {data.forecast.map((day, i) => (
+                <div key={day.date} className="flex items-center justify-between p-3 rounded-2xl bg-white/[0.02] border border-white/5 group hover:bg-white/5 transition-colors">
+                  <div className="flex items-center gap-3 flex-1">
+                    <span className="w-10 text-[10px] font-bold text-white/60 uppercase tracking-wider">
+                      {i === 0 ? 'Today' : new Date(day.date).toLocaleDateString(undefined, { weekday: 'short' })}
+                    </span>
+                    <span className="text-xl">{getWeatherIcon(day.code)}</span>
+                    <span className="text-[10px] text-white/40 font-medium truncate max-w-[80px]">
+                      {getWeatherDescription(day.code)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-bold text-white">{day.maxTemp}°</span>
+                    <div className="w-16 h-1 bg-white/10 rounded-full overflow-hidden relative">
+                      <div className="absolute inset-0 bg-gradient-to-r from-blue-500/50 to-orange-500/50" />
+                    </div>
+                    <span className="text-xs font-bold text-white/40">{day.minTemp}°</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-center gap-1 p-3 text-[9px] text-white/20 uppercase tracking-[0.2em] font-medium border-t border-white/5">
+            <div className="flex items-center gap-2">
+              <Info className="h-3 w-3" /> Data by Open-Meteo · Geolocation enabled
+            </div>
+            <div className="opacity-60">Last updated: {data.lastUpdated}</div>
+          </div>
+        </div>
+      </Panel>
+    </>
+  );
+}
+
+/* ----------------------------- Clock ----------------------------- */
+function Clock({ size = 1 }: { size: number }) {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  const fmtTime = useMemo(() => new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }), [])
+  const fmtDate = useMemo(() => new Intl.DateTimeFormat('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'Asia/Kolkata' }), [])
+  const timeStr = fmtTime.format(now)
+  const [hm, ampm] = timeStr.split(' ')
+  const dateStr = fmtDate.format(now)
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col items-center select-none -translate-y-12"
+    >
+      <div className="font-bold leading-none tracking-tighter text-white text-glow flex items-end"
+        style={{ fontSize: `clamp(100px, ${16 * size}vw, ${240 * size}px)` }}>
+        <span>{hm}</span>
+        <span className="ml-2 opacity-30 font-medium" style={{ fontSize: '0.25em', marginBottom: '0.15em' }}>{ampm.toLowerCase()}</span>
+      </div>
+      <div className="mt-2 text-white/40 text-glow-soft text-sm uppercase tracking-[0.4em] font-medium">{dateStr}</div>
+    </motion.div>
+  )
+}
+
+function Greeting({ name }: { name: string }) {
+  const [hour, setHour] = useState(new Date().getHours())
+  const [idx, setIdx] = useState(0)
+  useEffect(() => {
+    const id = setInterval(() => setHour(new Date().getHours()), 60000)
+    return () => clearInterval(id)
+  }, [])
+  const opts = useMemo(() => greetingFor(hour, name), [hour, name])
+  useEffect(() => { setIdx(Math.floor(Math.random() * opts.length)) }, [opts])
+  return (
+    <motion.p key={opts[idx]} initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 1 }}
+      className="text-white/85 text-glow-soft text-lg md:text-2xl font-light tracking-wide mb-2">
+      {opts[idx]}
+    </motion.p>
+  )
+}
+
+/* ----------------------------- Panel ----------------------------- */
+function Panel({ open, onClose, title, icon, children, width = 'max-w-3xl' }: { open: boolean, onClose: () => void, title: string, icon: React.ReactNode, children: React.ReactNode, width?: string }) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div className="fixed inset-0 z-40 flex items-center justify-center p-4"
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+          <motion.div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+          <motion.div
+            initial={{ opacity: 0, y: 24, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            className={`relative glass-strong rounded-2xl w-full ${width} h-[75vh] max-h-[680px] overflow-hidden flex flex-col`}
+          >
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
+              <div className="flex items-center gap-2 text-white/85">
+                <span className="text-white/60">{icon}</span>
+                <span className="text-sm font-medium tracking-wide">{title}</span>
+              </div>
+              <button onClick={onClose} className="text-white/50 hover:text-white transition-colors">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto thin-scroll">{children}</div>
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+/* ----------------------------- Stats ----------------------------- */
+function StatCard({ label, value, icon, color }: { label: string, value: string, icon: React.ReactNode, color: string }) {
+  return (
+    <div className={`relative overflow-hidden rounded-2xl p-5 border border-white/5 bg-gradient-to-br ${color} group transition-all hover:scale-[1.02] active:scale-[0.98]`}>
+      <div className="relative z-10 flex flex-col h-full">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-white/80 p-2 rounded-lg bg-black/10">{icon}</div>
+        </div>
+        <div className="mt-auto">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-white/50 font-bold mb-1">{label}</div>
+          <div className="text-2xl font-bold text-white tracking-tight">{value}</div>
+        </div>
+      </div>
+      <div className="absolute top-0 right-0 -mr-6 -mt-6 opacity-10 group-hover:opacity-20 transition-opacity">
+        {React.cloneElement(icon as React.ReactElement, { size: 100 })}
+      </div>
+    </div>
+  )
+}
+
+function StatsPanel({ open, onClose, user, pomoCycles, setPomoCycles, pomoRunning, pomoRemaining, pomoTotal, pomoMode }: { 
+  open: boolean, 
+  onClose: () => void, 
+  user: User | null, 
+  pomoCycles: number, 
+  setPomoCycles: (c: number) => void,
+  pomoRunning: boolean,
+  pomoRemaining: number,
+  pomoTotal: number,
+  pomoMode: string
+}) {
+  const [tasksDone, setTasksDone] = useState(0)
+  const [sessions, setSessions] = useState<{ duration: number, timestamp: number, day: string }[]>([])
+  const [filter, setFilter] = useState<'today' | 'week' | 'month'>('today')
+
+  useEffect(() => {
+    if (!user) return
+    const qTasks = query(collection(db, 'users', user.uid, 'tasks'), where('done', '==', true))
+    const unsubTasks = onSnapshot(qTasks, (snap) => setTasksDone(snap.size))
+    
+    const qSessions = query(collection(db, 'users', user.uid, 'sessions'))
+    const unsubSessions = onSnapshot(qSessions, (snap) => {
+      setSessions(snap.docs.map(d => d.data() as any))
+    })
+
+    return () => { unsubTasks(); unsubSessions() }
+  }, [user])
+
+  const chartData = useMemo(() => {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    const data = days.map(day => ({ name: day, focus: 0, total: 30 }))
+    
+    const now = Date.now()
+    const ms24h = 86400000
+    const ms7d = ms24h * 7
+    const ms30d = ms24h * 30
+
+    sessions.forEach(s => {
+      const isToday = now - s.timestamp < ms24h
+      const isWeek = now - s.timestamp < ms7d
+      const isMonth = now - s.timestamp < ms30d
+
+      if (filter === 'today' && !isToday) return
+      if (filter === 'week' && !isWeek) return
+      if (filter === 'month' && !isMonth) return
+
+      const idx = days.indexOf(s.day)
+      if (idx !== -1) {
+        data[idx].focus += s.duration
+      }
+    })
+    
+    return data
+  }, [sessions, filter])
+
+  const activeFocusMinutes = useMemo(() => {
+    if (pomoRunning && pomoMode === 'focus') {
+      return (pomoTotal - pomoRemaining) / 60
+    }
+    return 0
+  }, [pomoRunning, pomoMode, pomoTotal, pomoRemaining])
+
+  const totalFocusTimeMinutes = useMemo(() => {
+    const fromSessions = sessions.reduce((acc, s) => acc + s.duration, 0)
+    return fromSessions + (pomoCycles * 25) + activeFocusMinutes
+  }, [sessions, pomoCycles, activeFocusMinutes])
+
+  const formatFocusTime = (minutes: number) => {
+    if (minutes < 60) return `${minutes.toFixed(0)}m`
+    const h = Math.floor(minutes / 60)
+    const m = Math.round(minutes % 60)
+    return `${h}h ${m}m`
+  }
+
+  const focusScore = useMemo(() => {
+    const score = Math.min(100, (pomoCycles * 10) + (tasksDone * 5) + (activeFocusMinutes / 5))
+    return Math.round(score)
+  }, [pomoCycles, tasksDone, activeFocusMinutes])
+
+  const handleExport = () => {
+    const data = {
+      pomoCycles,
+      tasksCompleted: tasksDone,
+      focusTimeMinutes: totalFocusTimeMinutes,
+      timestamp: new Date().toISOString(),
+      user: user?.email || 'Anonymous'
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `oblivion-stats-${new Date().toISOString().split('T')[0]}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.success('Stats exported successfully')
+  }
+
+  const handleReset = () => {
+    if (confirm('Are you sure you want to reset your focus history? This will reset your pomodoro cycles to zero.')) {
+      setPomoCycles(0)
+      toast.success('Stats history reset')
+    }
+  }
+
+  return (
+    <Panel open={open} onClose={onClose} title="Focus Stats" icon={<BarChart2 className="h-4 w-4" />} width="max-w-4xl">
+      <div className="p-8 h-full flex flex-col space-y-8 overflow-auto thin-scroll">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold tracking-tight text-white mb-1 flex items-center gap-2">
+              Focus Stats
+            </h2>
+            <p className="text-sm text-white/40 font-medium">Refine your workflow with insights into your productivity patterns.</p>
+          </div>
+          <div className="flex bg-white/5 rounded-full p-1 self-start">
+            {(['today', 'week', 'month'] as const).map(t => (
+              <button key={t} onClick={() => setFilter(t)}
+                className={`px-5 py-1.5 rounded-full text-[11px] font-bold uppercase tracking-widest transition-all ${filter === t ? 'bg-white text-black' : 'text-white/40 hover:text-white'}`}>
+                {t === 'today' ? 'Today' : t === 'week' ? '1 Week' : '4 Weeks'}
+              </button>
+            ))}
+          </div>
+        </header>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <StatCard label="Streak" value={`${pomoCycles > 0 ? 1 : 0} days`} icon={<Flame />} color="from-orange-600/80 to-red-600/60" />
+          <StatCard label="Focus Time" value={formatFocusTime(totalFocusTimeMinutes)} icon={<Zap />} color="from-yellow-600/80 to-orange-600/60" />
+          <StatCard label="Focus Score" value={String(focusScore)} icon={<Brain />} color="from-indigo-600/80 to-purple-600/60" />
+          <StatCard label="Tasks Completed" value={String(tasksDone)} icon={<LayoutList />} color="from-emerald-600/80 to-teal-600/60" />
+          <StatCard label="Sessions" value={String(Math.max(sessions.length, pomoCycles))} icon={<RotateCcw />} color="from-blue-600/80 to-cyan-600/60" />
+          <StatCard label="Break Time" value={`${(pomoCycles * 5).toFixed(0)}m`} icon={<Coffee />} color="from-pink-600/80 to-rose-600/60" />
+        </div>
+
+        <div className="relative">
+          <div className="p-6 rounded-3xl bg-white/[0.03] border border-white/5 flex flex-col h-[320px]">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xs uppercase tracking-[0.25em] text-white/40 font-bold">Recent Productivity</h3>
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-white/50" /> <span className="text-[10px] text-white/40">Focus</span></div>
+                <div className="flex items-center gap-1.5"><div className="h-2 w-2 rounded-full bg-indigo-500" /> <span className="text-[10px] text-white/40">Goal</span></div>
+              </div>
+            </div>
+            
+            <div className="flex-1 w-full relative">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <defs>
+                    <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor="#818cf8" />
+                      <stop offset="100%" stopColor="#c084fc" />
+                    </linearGradient>
+                  </defs>
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: 'rgba(0,0,0,0.8)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px' }}
+                    itemStyle={{ fontSize: '10px', color: '#fff' }}
+                    labelStyle={{ display: 'none' }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="focus" 
+                    stroke="rgba(255,255,255,0.4)" 
+                    strokeWidth={3} 
+                    dot={false}
+                    activeDot={{ r: 4, fill: '#fff' }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="total" 
+                    stroke="url(#lineGrad)" 
+                    strokeWidth={4} 
+                    dot={false}
+                    activeDot={{ r: 6, fill: '#818cf8' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            
+            <div className="flex justify-between items-center mt-4 px-2">
+              {chartData.map(d => (
+                <span key={d.name} className="text-[10px] font-bold text-white/20 uppercase tracking-tighter">{d.name}</span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center gap-4 py-4">
+          <Button variant="ghost" onClick={handleExport} className="text-[10px] uppercase tracking-widest font-bold text-white/30 hover:text-white">Export Data</Button>
+          <div className="h-4 w-px bg-white/10" />
+          <Button variant="ghost" onClick={handleReset} className="text-[10px] uppercase tracking-widest font-bold text-white/30 hover:text-white">Reset History</Button>
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+/* ----------------------------- Notes ----------------------------- */
+interface Note { id: string; title: string; body: string; updatedAt: number }
+function NotesPanel({ open, onClose, user, connectClickUp }: { open: boolean, onClose: () => void, user: User | null, connectClickUp: () => void }) {
+  const [localNotes, setLocalNotes] = useState<Note[]>([])
+  const [remoteNotes, setRemoteNotes] = useState<Note[]>([])
+  const [active, setActive] = useState<string | null>(null)
+  const [q, setQ] = useState('')
+  const [isClickUpConnected, setIsClickUpConnected] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('oblivion.notes')
+      if (raw) setLocalNotes(JSON.parse(raw))
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const q = query(collection(db, 'users', user.uid, 'notes'))
+    const unsubNotes = onSnapshot(q, (snap) => {
+      setRemoteNotes(snap.docs.map(d => ({ id: d.id, ...d.data() } as Note)))
+    }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/notes`))
+
+    const unsubClickup = onSnapshot(doc(db, 'users', user.uid, 'integrations', 'clickup'), (snap) => {
+      setIsClickUpConnected(snap.exists())
+    })
+
+    return () => { unsubNotes(); unsubClickup() }
+  }, [user])
+
+  const syncClickUpDocs = async () => {
+    if (!user) return toast.error('Sign in to sync with ClickUp')
+    setIsSyncing(true)
+    toast('Fetching ClickUp docs...', { icon: '🔄' })
+    try {
+      const snap = await getDoc(doc(db, 'users', user.uid, 'integrations', 'clickup'))
+      if (!snap.exists()) return toast.error('ClickUp not connected')
+      const { access_token } = snap.data()
+
+      const res = await fetch('/api/clickup/docs', {
+        headers: { 'Authorization': access_token }
+      })
+      const data = await res.json()
+      
+      if (data.error) throw new Error(data.error)
+
+      const docs = data.docs || []
+      if (docs.length > 0) {
+        let addedCount = 0
+        const existingTitles = new Set(remoteNotes.map(n => n.title.toLowerCase()))
+
+        for (const cd of docs) {
+          if (!existingTitles.has(cd.name.toLowerCase())) {
+            const body = cd.description || ''
+            await addDoc(collection(db, 'users', user.uid, 'notes'), {
+              userId: user.uid,
+              title: cd.name,
+              body: body,
+              updatedAt: Date.now(),
+              clickupId: cd.id
+            })
+            addedCount++
+          }
+        }
+        toast.success(`Synced ${addedCount} new notes from ClickUp`)
+      } else {
+        toast('No new ClickUp docs found')
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast.error(`Sync failed: ${err.message || 'ClickUp API error'}`)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const notes = user ? remoteNotes : localNotes
+  const setNotes = (updater: (prev: Note[]) => Note[]) => {
+    if (user) {
+      // Logic for remote updates is handling individual docs usually
+    } else {
+      const next = updater(localNotes)
+      setLocalNotes(next)
+      localStorage.setItem('oblivion.notes', JSON.stringify(next))
+    }
+  }
+
+  const addNote = async () => {
+    if (!user) {
+      const id = crypto.randomUUID()
+      const n = { id, title: 'Untitled', body: '', updatedAt: Date.now() }
+      const list = [n, ...localNotes]
+      setLocalNotes(list)
+      localStorage.setItem('oblivion.notes', JSON.stringify(list))
+      setActive(id)
+      return
+    }
+
+    try {
+      const n = { userId: user.uid, title: 'Untitled', body: '', updatedAt: Date.now() }
+      const docRef = await addDoc(collection(db, 'users', user.uid, 'notes'), n)
+      setActive(docRef.id)
+    } catch (err) {
+      handleFirestoreError(err, 'create', `users/${user.uid}/notes`)
+    }
+  }
+
+  const updateNote = async (id: string, patch: Partial<Note>) => {
+    if (!user) {
+      const list = localNotes.map(n => n.id === id ? { ...n, ...patch, updatedAt: Date.now() } : n)
+      setLocalNotes(list)
+      localStorage.setItem('oblivion.notes', JSON.stringify(list))
+      return
+    }
+
+    try {
+      await updateDoc(doc(db, 'users', user.uid, 'notes', id), { ...patch, updatedAt: Date.now() })
+    } catch (err) {
+      handleFirestoreError(err, 'update', `users/${user.uid}/notes/${id}`)
+    }
+  }
+
+  const removeNote = async (id: string) => {
+    if (!user) {
+      const list = localNotes.filter(n => n.id !== id)
+      setLocalNotes(list)
+      localStorage.setItem('oblivion.notes', JSON.stringify(list))
+      if (active === id) setActive(null)
+      return
+    }
+
+    try {
+      await deleteDoc(doc(db, 'users', user.uid, 'notes', id))
+      if (active === id) setActive(null)
+    } catch (err) {
+      handleFirestoreError(err, 'delete', `users/${user.uid}/notes/${id}`)
+    }
+  }
+
+  const filtered = notes.filter(n => !q || (n.title + ' ' + n.body).toLowerCase().includes(q.toLowerCase()))
+  const current = notes.find(n => n.id === active)
+  return (
+    <Panel open={open} onClose={onClose} title="Notes" icon={<StickyNote className="h-4 w-4" />}>
+      <div className="grid grid-cols-[260px_1fr] h-full min-h-0">
+        <div className="border-r border-white/10 flex flex-col min-h-0">
+          <div className="p-3 flex items-center gap-2 border-b border-white/5">
+            <div className="relative flex-1">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
+              <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
+                className="pl-8 bg-white/5 border-white/10 text-white placeholder:text-white/40 h-9" />
+            </div>
+            <Button size="icon" onClick={addNote} className="bg-white/10 hover:bg-white/20 h-9 w-9"><Plus className="h-4 w-4" /></Button>
+          </div>
+          <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
+            <div className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold">Managed Notes</div>
+            <button 
+              onClick={isClickUpConnected ? syncClickUpDocs : connectClickUp} 
+              disabled={isSyncing}
+              className={`text-[9px] uppercase font-bold tracking-widest flex items-center gap-1.5 transition-all ${isClickUpConnected ? 'text-blue-400 hover:text-blue-300' : 'text-white/40 hover:text-white'}`}
+            >
+              {isSyncing ? (
+                <span className="animate-pulse">...</span>
+              ) : isClickUpConnected ? (
+                <><RotateCcw className="h-3 w-3" /> Sync</>
+              ) : (
+                <><Plus className="h-3 w-3" /> Link</>
+              )}
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto thin-scroll px-2 pb-3 space-y-1">
+            {filtered.length === 0 && <div className="text-white/40 text-sm p-3">No notes. Create one ↑</div>}
+            {filtered.map(n => (
+              <button key={n.id} onClick={() => setActive(n.id)}
+                className={`w-full text-left rounded-lg px-3 py-2 transition-colors ${active === n.id ? 'bg-white/10' : 'hover:bg-white/5'}`}>
+                <div className="text-sm text-white truncate">{n.title || 'Untitled'}</div>
+                <div className="text-xs text-white/40 truncate">{(n.body || '').slice(0, 50) || 'Empty note'}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex flex-col min-h-0">
+          {current ? (
+            <>
+              <div className="p-3 flex items-center gap-2 border-b border-white/10">
+                <Input value={current.title} onChange={e => updateNote(current.id, { title: e.target.value })}
+                  className="bg-transparent border-0 text-lg font-medium focus-visible:ring-0 px-0 text-white" placeholder="Title" />
+                <Button size="icon" variant="ghost" onClick={() => removeNote(current.id)} className="text-white/60 hover:text-red-300">
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              <Textarea value={current.body} onChange={e => updateNote(current.id, { body: e.target.value })}
+                placeholder="Start writing…  (# heading, **bold**, *italic*, - lists)"
+                className="flex-1 bg-transparent border-0 resize-none text-white/90 focus-visible:ring-0 p-5 text-[15px] leading-relaxed thin-scroll" />
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-white/40">Select or create a note</div>
+          )}
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+/* ----------------------------- Tasks ----------------------------- */
+interface Task { id: string; text: string; done: boolean; createdAt: number }
+function TaskRow({ t, onToggle, onRemove }: { t: Task, onToggle: (id: string) => void, onRemove: (id: string) => void, key?: string }) {
+  return (
+    <motion.div layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.25 }}
+      className="group flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5 transition-colors">
+      <button onClick={() => onToggle(t.id)}
+        className={`h-5 w-5 rounded-md border flex items-center justify-center transition-all ${t.done ? 'bg-white border-white' : 'border-white/30 hover:border-white/60'}`}>
+        {t.done && <Check className="h-3.5 w-3.5 text-black" />}
+      </button>
+      <span className={`flex-1 text-[15px] transition-all ${t.done ? 'line-through text-white/40' : 'text-white/90'}`}>{t.text}</span>
+      <button onClick={() => onRemove(t.id)} className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-300 transition-opacity">
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </motion.div>
+  )
+}
+function ChecklistPanel({ open, onClose, user, connectClickUp, googleToken, setGoogleToken }: { open: boolean, onClose: () => void, user: User | null, connectClickUp: () => void, googleToken: string | null, setGoogleToken: (t: string | null) => void }) {
+  const [localTasks, setLocalTasks] = useState<Task[]>([])
+  const [remoteTasks, setRemoteTasks] = useState<Task[]>([])
+  const [input, setInput] = useState('')
+  const [isClickUpConnected, setIsClickUpConnected] = useState(false)
+  const [isSyncing, setIsSyncing] = useState(false)
+
+  // Tabs: flow = offline/Firestore/ClickUp, google = Google Tasks API
+  const [activeTab, setActiveTab] = useState<'flow' | 'google'>('flow')
+
+  // Google Tasks specific states
+  const [taskLists, setTaskLists] = useState<{ id: string, title: string }[]>([])
+  const [activeListId, setActiveListId] = useState<string>('')
+  const [gTasks, setGTasks] = useState<{ id: string, title: string, status: 'needsAction' | 'completed' }[]>([])
+  const [gLoading, setGLoading] = useState(false)
+  const [listLoading, setListLoading] = useState(false)
+  const [gInput, setGInput] = useState('')
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('oblivion.tasks')
+      if (raw) setLocalTasks(JSON.parse(raw))
+    } catch {}
+  }, [])
+
+  useEffect(() => {
+    if (!user) return
+    const q = query(collection(db, 'users', user.uid, 'tasks'))
+    const unsubTasks = onSnapshot(q, (snap) => {
+      setRemoteTasks(snap.docs.map(d => ({ id: d.id, ...d.data() } as Task)))
+    }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/tasks`))
+
+    const unsubClickup = onSnapshot(doc(db, 'users', user.uid, 'integrations', 'clickup'), (snap) => {
+      setIsClickUpConnected(snap.exists())
+    })
+
+    return () => { unsubTasks(); unsubClickup() }
+  }, [user])
+
+  // Google Tasks fetchers
+  const fetchTaskLists = useCallback(async (tokenToUse: string) => {
+    setListLoading(true)
+    try {
+      const res = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', {
+        headers: { 'Authorization': `Bearer ${tokenToUse}` }
+      })
+      const data = await res.json()
+      if (data.items) {
+        setTaskLists(data.items)
+        if (data.items.length > 0) {
+          setActiveListId(data.items[0].id)
+        }
+      } else if (data.error) {
+        // Token was likely expired or revoked
+        setGoogleToken(null)
+      }
+    } catch (err) {
+      console.error('Fetch Google Tasks Lists failed', err)
+      setGoogleToken(null)
+    } finally {
+      setListLoading(false)
+    }
+  }, [setGoogleToken])
+
+  const fetchTasksForList = useCallback(async (tokenToUse: string, listId: string) => {
+    if (!listId) return
+    setGLoading(true)
+    try {
+      const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${listId}/tasks?showCompleted=true&showHidden=true&maxResults=100`, {
+        headers: { 'Authorization': `Bearer ${tokenToUse}` }
+      })
+      const data = await res.json()
+      if (data.items) {
+        setGTasks(data.items.map((item: any) => ({
+          id: item.id,
+          title: item.title || 'Untitled Task',
+          status: item.status
+        })))
+      } else {
+        setGTasks([])
+      }
+    } catch (err) {
+      console.error('Fetch Google Tasks failed', err)
+    } finally {
+      setGLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (googleToken && open && activeTab === 'google') {
+      fetchTaskLists(googleToken)
+    }
+  }, [googleToken, open, activeTab, fetchTaskLists])
+
+  useEffect(() => {
+    if (googleToken && activeListId && open && activeTab === 'google') {
+      fetchTasksForList(googleToken, activeListId)
+    }
+  }, [googleToken, activeListId, open, activeTab, fetchTasksForList])
+
+  const linkGoogleTasks = async () => {
+    try {
+      toast('Connecting to Google...', { icon: '🔄' })
+      const res = await signInWithPopup(auth, googleProvider)
+      const cred = GoogleAuthProvider.credentialFromResult(res)
+      const token = cred?.accessToken ?? null
+      if (!token) throw new Error('No access token')
+      setGoogleToken(token)
+      toast.success('Connected to Google Tasks')
+    } catch (err: any) {
+      console.error(err)
+      toast.error('Connection failed')
+    }
+  }
+
+  const addGTaskItem = async () => {
+    const val = gInput.trim()
+    if (!val || !googleToken || !activeListId) return
+    try {
+      const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${activeListId}/tasks`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${googleToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ title: val })
+      })
+      const data = await res.json()
+      if (data.id) {
+        setGInput('')
+        fetchTasksForList(googleToken, activeListId)
+        toast.success('Task added to Google Tasks')
+      }
+    } catch (err) {
+      console.error('Failed to add Google Task', err)
+      toast.error('Could not add task')
+    }
+  }
+
+  const toggleGTaskItem = async (taskId: string, currentStatus: string) => {
+    if (!googleToken || !activeListId) return
+    const newStatus = currentStatus === 'completed' ? 'needsAction' : 'completed'
+    try {
+      // Optimistic update
+      setGTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus as any } : t))
+      
+      const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${activeListId}/tasks/${taskId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${googleToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ 
+          status: newStatus,
+          completed: newStatus === 'completed' ? new Date().toISOString() : null
+        })
+      })
+      const data = await res.json()
+      if (!data.id) {
+        // Rollback on failure
+        fetchTasksForList(googleToken, activeListId)
+        throw new Error('API update failure')
+      }
+    } catch (err) {
+      console.error('Failed to toggle Google Task', err)
+      toast.error('Could not sync status changes')
+    }
+  }
+
+  const deleteGTaskItem = async (taskId: string, taskTitle: string) => {
+    if (!googleToken || !activeListId) return
+    const confirmed = window.confirm(`Are you sure you want to delete "${taskTitle}" from Google Tasks?`)
+    if (!confirmed) return
+    try {
+      // Optimistic update
+      setGTasks(prev => prev.filter(t => t.id !== taskId))
+      await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${activeListId}/tasks/${taskId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${googleToken}`
+        }
+      })
+      toast.success('Task deleted')
+    } catch (err) {
+      console.error('Failed to delete Google Task', err)
+      fetchTasksForList(googleToken, activeListId)
+      toast.error('Could not delete task')
+    }
+  }
+
+  const syncClickUp = async () => {
+    if (!user) return toast.error('Sign in to sync with ClickUp')
+    setIsSyncing(true)
+    toast('Fetching ClickUp tasks...', { icon: '🔄' })
+    try {
+      const snap = await getDoc(doc(db, 'users', user.uid, 'integrations', 'clickup'))
+      if (!snap.exists()) return toast.error('ClickUp not connected')
+      const { access_token } = snap.data()
+
+      const res = await fetch('/api/clickup/tasks', {
+        headers: { 'Authorization': access_token }
+      })
+      const data = await res.json()
+      
+      if (data.error) {
+        throw new Error(data.error)
+      }
+
+      const allTasks = data.tasks || []
+
+      if (allTasks.length > 0) {
+        const existingTexts = new Set(remoteTasks.map(t => t.text.toLowerCase()))
+        let addedCount = 0
+        
+        for (const ct of allTasks) {
+          if (!existingTexts.has(ct.name.toLowerCase())) {
+             const newTask = { 
+               userId: user.uid, 
+               text: ct.name, 
+               done: ct.status?.type === 'closed', 
+               createdAt: Date.now(),
+               clickupId: ct.id 
+             }
+             await addDoc(collection(db, 'users', user.uid, 'tasks'), newTask)
+             addedCount++
+          }
+        }
+        toast.success(`Synced ${addedCount} new tasks from ClickUp`)
+      } else {
+        toast('No new ClickUp tasks found')
+      }
+    } catch (err: any) {
+      console.error(err)
+      toast.error(`Sync failed: ${err.message || 'ClickUp API error'}`)
+    } finally {
+      setIsSyncing(false)
+    }
+  }
+
+  const tasks = user ? remoteTasks : localTasks
+
+  const add = async () => {
+    const t = input.trim(); if (!t) return
+    if (user) {
+      try {
+        const newTask = { userId: user.uid, text: t, done: false, createdAt: Date.now() }
+        await addDoc(collection(db, 'users', user.uid, 'tasks'), newTask)
+      } catch (err) {
+        handleFirestoreError(err, 'create', `users/${user.uid}/tasks`)
+      }
+    } else {
+      const list = [{ id: crypto.randomUUID(), text: t, done: false, createdAt: Date.now() }, ...localTasks]
+      setLocalTasks(list); localStorage.setItem('oblivion.tasks', JSON.stringify(list))
+    }
+    setInput('')
+  }
+
+  const toggle = async (id: string) => {
+    const task = tasks.find(t => t.id === id)
+    if (!task) return
+    if (user) {
+      try {
+        await updateDoc(doc(db, 'users', user.uid, 'tasks', id), { done: !task.done })
+      } catch (err) {
+        handleFirestoreError(err, 'update', `users/${user.uid}/tasks/${id}`)
+      }
+    } else {
+      const next = localTasks.map(t => t.id === id ? { ...t, done: !t.done } : t)
+      setLocalTasks(next); localStorage.setItem('oblivion.tasks', JSON.stringify(next))
+    }
+  }
+
+  const remove = async (id: string) => {
+    if (user) {
+      try {
+        await deleteDoc(doc(db, 'users', user.uid, 'tasks', id))
+      } catch (err) {
+        handleFirestoreError(err, 'delete', `users/${user.uid}/tasks/${id}`)
+      }
+    } else {
+      const next = localTasks.filter(t => t.id !== id)
+      setLocalTasks(next); localStorage.setItem('oblivion.tasks', JSON.stringify(next))
+    }
+  }
+
+  const clearDone = async () => {
+    if (user) {
+      try {
+        const batch = tasks.filter(t => t.done)
+        for (const t of batch) {
+          await deleteDoc(doc(db, 'users', user.uid, 'tasks', t.id))
+        }
+      } catch (err) {
+        handleFirestoreError(err, 'delete', `users/${user.uid}/tasks/batch`)
+      }
+    } else {
+      const next = localTasks.filter(t => !t.done)
+      setLocalTasks(next); localStorage.setItem('oblivion.tasks', JSON.stringify(next))
+    }
+  }
+
+  const pending = tasks.filter(t => !t.done)
+  const done = tasks.filter(t => t.done)
+
+  return (
+    <Panel open={open} onClose={onClose} title="Checklist" icon={<ListChecks className="h-4 w-4" />} width="max-w-xl">
+      <div className="flex flex-col h-full min-h-0">
+        
+        {/* Sleek navigation tabs */}
+        <div className="flex px-5 pt-3 border-b border-white/5 space-x-6 shrink-0 bg-white/[0.01]">
+          <button 
+            onClick={() => setActiveTab('flow')}
+            className={`pb-3 text-[10px] uppercase tracking-[0.2em] font-black transition-all relative ${activeTab === 'flow' ? 'text-white' : 'text-white/30 hover:text-white/60'}`}
+          >
+            Flow List
+            {activeTab === 'flow' && (
+              <motion.div layoutId="checklist-active-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[2px] bg-white rounded-full" />
+            )}
+          </button>
+          <button 
+            onClick={() => setActiveTab('google')}
+            className={`pb-3 text-[10px] uppercase tracking-[0.2em] font-black transition-all relative flex items-center gap-1.5 ${activeTab === 'google' ? 'text-white' : 'text-white/30 hover:text-white/60'}`}
+          >
+            Google Tasks
+            {activeTab === 'google' && (
+              <motion.div layoutId="checklist-active-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[2px] bg-white rounded-full" />
+            )}
+          </button>
+        </div>
+
+        {activeTab === 'flow' ? (
+          <div className="p-5 flex flex-col flex-1 min-h-0">
+            <div className="flex items-center justify-between mb-4 px-1">
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Managed List</div>
+              <button 
+                onClick={isClickUpConnected ? syncClickUp : connectClickUp} 
+                disabled={isSyncing}
+                className={`text-[10px] uppercase font-bold tracking-widest flex items-center gap-1.5 transition-all ${isClickUpConnected ? 'text-blue-400 hover:text-blue-300' : 'text-white/40 hover:text-white'}`}
+              >
+                {isSyncing ? (
+                  <span className="animate-pulse">Syncing...</span>
+                ) : isClickUpConnected ? (
+                  <><RotateCcw className={`h-3 w-3 ${isSyncing ? 'animate-spin' : ''}`} /> Sync ClickUp</>
+                ) : (
+                  <><Plus className="h-3 w-3" /> Connect ClickUp</>
+                )}
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <Input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()}
+                placeholder="Add a task and press Enter…"
+                className="bg-white/5 border-white/10 text-white placeholder:text-white/40 h-11" />
+              <Button onClick={add} className="bg-white/10 hover:bg-white/20 h-11 px-4">Add</Button>
+            </div>
+            <div className="mt-5 flex-1 overflow-auto thin-scroll space-y-1.5 pr-1">
+              <AnimatePresence initial={false}>
+                {pending.map(t => <TaskRow key={t.id} t={t} onToggle={toggle} onRemove={remove} />)}
+              </AnimatePresence>
+              {done.length > 0 && (
+                <div className="pt-4 mt-3 border-t border-white/10">
+                  <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/40 mb-2">
+                    <span>Completed · {done.length}</span>
+                    <button onClick={clearDone} className="hover:text-white/70">Clear</button>
+                  </div>
+                  <AnimatePresence initial={false}>
+                    {done.map(t => <TaskRow key={t.id} t={t} onToggle={toggle} onRemove={remove} />)}
+                  </AnimatePresence>
+                </div>
+              )}
+              {tasks.length === 0 && <div className="text-white/40 text-sm text-center pt-12">A quiet list. Add your first task.</div>}
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col min-h-0 bg-black/[0.05]">
+            {!googleToken ? (
+              <div className="flex-1 flex flex-col items-center justify-center text-center p-8 space-y-4">
+                <div className="p-4 rounded-full bg-white/[0.02] border border-white/5 text-white/40">
+                  <ListChecks className="h-8 w-8 text-white/30" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black uppercase tracking-[0.2em] text-white">Google Tasks Integration</h3>
+                  <p className="text-xs text-white/40 mt-2 max-w-[280px] mx-auto leading-relaxed">
+                    Access and manage your cloud-hosted Google Tasks directly from your workspace with safe syncs.
+                  </p>
+                </div>
+                <button 
+                  onClick={linkGoogleTasks}
+                  className="px-6 py-3 rounded-xl text-xs uppercase font-black tracking-widest bg-white text-black hover:bg-white/95 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2 shadow-lg shadow-white/5"
+                >
+                  <ListChecks className="h-4 w-4" /> Connect Google Account
+                </button>
+              </div>
+            ) : (
+              <div className="p-5 flex flex-col flex-1 min-h-0">
+                
+                {/* Horizontal slider for list picker */}
+                {listLoading ? (
+                  <div className="text-white/20 text-[10px] uppercase tracking-widest mb-3 animate-pulse">Loading task lists...</div>
+                ) : (
+                  taskLists.length > 0 && (
+                    <div className="mb-4">
+                      <div className="flex gap-1.5 overflow-x-auto pb-2 shrink-0 no-scrollbar max-w-full">
+                        {taskLists.map(lst => (
+                          <button
+                            key={lst.id}
+                            onClick={() => setActiveListId(lst.id)}
+                            className={`px-3-5 py-1.5 rounded-full text-[9px] uppercase font-black tracking-widest shrink-0 transition-all border ${
+                              activeListId === lst.id 
+                                ? 'bg-white text-black border-white' 
+                                : 'bg-white/5 text-white/55 border-white/5 hover:border-white/20'
+                            }`}
+                          >
+                            {lst.title}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                )}
+
+                {/* Adding task */}
+                <div className="flex gap-2">
+                  <Input 
+                    value={gInput} 
+                    onChange={e => setGInput(e.target.value)} 
+                    onKeyDown={e => e.key === 'Enter' && addGTaskItem()}
+                    placeholder="Add task to Google Tasks…"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-white/40 h-11" 
+                  />
+                  <Button onClick={addGTaskItem} className="bg-white/10 hover:bg-white/20 h-11 px-4">Add</Button>
+                </div>
+
+                {/* Google task lists items */}
+                <div className="mt-5 flex-1 overflow-auto thin-scroll space-y-1.5 pr-1">
+                  {gLoading ? (
+                    <div className="text-center pt-12 text-white/40 text-xs uppercase tracking-widest animate-pulse">Loading tasks from Google...</div>
+                  ) : (
+                    <>
+                      <AnimatePresence initial={false}>
+                        {gTasks.filter(item => item.status !== 'completed').map(t => (
+                          <motion.div key={t.id} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.25 }}
+                            className="group flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5 transition-colors">
+                            <button onClick={() => toggleGTaskItem(t.id, t.status)}
+                              className="h-5 w-5 rounded-md border border-white/30 hover:border-white/60 flex items-center justify-center transition-all">
+                              {t.status === 'completed' && <Check className="h-3.5 w-3.5 text-black" />}
+                            </button>
+                            <span className="flex-1 text-[15px] text-white/90">{t.title}</span>
+                            <button onClick={() => deleteGTaskItem(t.id, t.title)} className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-300 transition-opacity">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </motion.div>
+                        ))}
+                      </AnimatePresence>
+
+                      {gTasks.some(item => item.status === 'completed') && (
+                        <div className="pt-4 mt-3 border-t border-white/10">
+                          <div className="flex items-center justify-between text-xs uppercase tracking-wide text-white/40 mb-2">
+                            <span>Completed · {gTasks.filter(item => item.status === 'completed').length}</span>
+                          </div>
+                          <AnimatePresence initial={false}>
+                            {gTasks.filter(item => item.status === 'completed').map(t => (
+                              <motion.div key={t.id} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 20 }} transition={{ duration: 0.25 }}
+                                className="group flex items-center gap-3 rounded-xl px-3 py-2.5 hover:bg-white/5 transition-colors">
+                                <button onClick={() => toggleGTaskItem(t.id, t.status)}
+                                  className="h-5 w-5 rounded-md border bg-white border-white flex items-center justify-center transition-all">
+                                  <Check className="h-3.5 w-3.5 text-black" />
+                                </button>
+                                <span className="flex-1 text-[15px] line-through text-white/40">{t.title}</span>
+                                <button onClick={() => deleteGTaskItem(t.id, t.title)} className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-300 transition-opacity">
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </motion.div>
+                            ))}
+                          </AnimatePresence>
+                        </div>
+                      )}
+
+                      {gTasks.length === 0 && (
+                        <div className="text-white/40 text-sm text-center pt-12">No tasks in this list. Clean slate!</div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+      </div>
+    </Panel>
+  )
+}
+
+/* ----------------------------- Pomodoro ----------------------------- */
+function DurationField({ label, v, set }: { label: string, v: number, set: (n: number) => void }) {
+  return (
+    <label className="block">
+      <div className="text-[10px] tracking-[0.2em] uppercase mb-1">{label}</div>
+      <input type="number" min={1} max={120} value={v}
+        onChange={e => set(Math.max(1, Math.min(120, Number(e.target.value) || 1)))}
+        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm text-center focus:outline-none focus:border-white/30" />
+    </label>
+  )
+}
+function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, shortMin, setShortMin, longMin, setLongMin, running, setRunning, remaining, setRemaining, total, cycles, onComplete }: { 
+  open: boolean, 
+  onClose: () => void,
+  mode: 'focus' | 'short' | 'long',
+  setMode: (m: 'focus' | 'short' | 'long') => void,
+  focusMin: number,
+  setFocusMin: (n: number) => void,
+  shortMin: number,
+  setShortMin: (n: number) => void,
+  longMin: number,
+  setLongMin: (n: number) => void,
+  running: boolean,
+  setRunning: (r: boolean) => void,
+  remaining: number,
+  setRemaining: React.Dispatch<React.SetStateAction<number>>,
+  total: number,
+  cycles: number,
+  onComplete: () => void
+}) {
+  const [isEditing, setIsEditing] = useState(false)
+  const [editMin, setEditMin] = useState('')
+  const [editSec, setEditSec] = useState('')
+
+  const startEdit = () => {
+    setRunning(false)
+    setEditMin(String(Math.floor(remaining / 60)).padStart(2, '0'))
+    setEditSec(String(remaining % 60).padStart(2, '0'))
+    setIsEditing(true)
+  }
+
+  const saveEdit = () => {
+    const m = Math.max(0, Math.min(120, Number(editMin) || 0))
+    const s = Math.max(0, Math.min(59, Number(editSec) || 0))
+    setRemaining(m * 60 + s)
+    setIsEditing(false)
+  }
+
+  const togglePiP = async () => {
+    if (!('documentPictureInPicture' in window)) {
+      toast.error('Picture-in-Picture not supported by your browser')
+      return
+    }
+    try {
+      // @ts-ignore
+      const pip = await window.documentPictureInPicture.requestWindow({
+        width: 280,
+        height: 320,
+      })
+      
+      const container = document.createElement('div')
+      container.id = 'pip-pomodoro'
+      pip.document.body.append(container)
+      
+      // Copy styles
+      const styles = document.querySelectorAll('style, link[rel="stylesheet"]')
+      styles.forEach(s => pip.document.head.append(s.cloneNode(true)))
+      pip.document.body.className = 'bg-[#050505] text-white flex flex-col items-center justify-center h-full m-0'
+      
+      toast.success('Pomodoro in Picture-in-Picture')
+    } catch (e) {
+      toast.error('Failed to open PiP')
+    }
+  }
+
+  const mm = String(Math.floor(remaining / 60)).padStart(2, '0')
+  const ss = String(remaining % 60).padStart(2, '0')
+  const pct = total > 0 ? (1 - remaining / total) : 0
+  const R = 110
+  const C = 2 * Math.PI * R
+  return (
+    <Panel open={open} onClose={onClose} title="Pomodoro" icon={<Timer className="h-4 w-4" />} width="max-w-md">
+      <div className="p-6 flex flex-col items-center">
+        <div className="flex bg-white/5 p-1 rounded-full text-sm">
+          {(['focus', 'short', 'long'] as const).map(m => (
+            <button key={m} onClick={() => setMode(m)}
+              className={`px-4 py-1.5 rounded-full transition-all ${mode === m ? 'bg-white text-black' : 'text-white/70 hover:text-white'}`}>
+              {m === 'focus' ? 'Focus' : m === 'short' ? 'Short' : 'Long'}
+            </button>
+          ))}
+        </div>
+        <div className="relative my-6 flex items-center justify-center">
+          <svg width="260" height="260" viewBox="0 0 260 260" className="-rotate-90">
+            <circle cx="130" cy="130" r={R} stroke="rgba(255,255,255,0.08)" strokeWidth="6" fill="none" />
+            <motion.circle cx="130" cy="130" r={R} stroke="white" strokeWidth="6" fill="none" strokeLinecap="round"
+              strokeDasharray={C} animate={{ strokeDashoffset: C * (1 - pct) }} transition={{ ease: 'linear', duration: 0.5 }}
+              style={{ filter: 'drop-shadow(0 0 12px rgba(255,255,255,0.35))' }} />
+          </svg>
+          <div className="absolute text-center">
+            {isEditing ? (
+              <div className="flex items-center justify-center gap-1">
+                <input autoFocus type="text" value={editMin} onChange={e => setEditMin(e.target.value.slice(0, 2))} onBlur={saveEdit} onKeyDown={e => e.key === 'Enter' && saveEdit()}
+                  className="bg-white/10 w-20 text-5xl font-semibold tabular-nums text-white text-center rounded-lg border border-white/20 focus:outline-none" />
+                <span className="text-4xl text-white/40">:</span>
+                <input type="text" value={editSec} onChange={e => setEditSec(e.target.value.slice(0, 2))} onBlur={saveEdit} onKeyDown={e => e.key === 'Enter' && saveEdit()}
+                  className="bg-white/10 w-20 text-5xl font-semibold tabular-nums text-white text-center rounded-lg border border-white/20 focus:outline-none" />
+              </div>
+            ) : (
+              <div onClick={startEdit} className="text-6xl font-semibold tabular-nums text-white text-glow cursor-pointer hover:scale-105 transition-transform">{mm}:{ss}</div>
+            )}
+            <div className="mt-2 text-xs uppercase tracking-[0.2em] text-white/50">Cycles · {cycles}</div>
+          </div>
+        </div>
+        <div className="flex gap-3">
+          <Button onClick={() => setRunning(!running)} className="bg-white text-black hover:bg-white/90 h-11 px-6 rounded-full font-bold uppercase tracking-wider text-xs">
+            {running ? <><Pause className="h-4 w-4 mr-2" /> Pause</> : <><Play className="h-4 w-4 mr-2" /> Start</>}
+          </Button>
+          <Button onClick={togglePiP} variant="ghost" className="text-white/70 hover:text-white h-11 w-11 p-0 rounded-full bg-white/5 border border-white/5">
+            <Maximize2 className="h-4 w-4" />
+          </Button>
+          <Button onClick={() => { setRunning(false); setRemaining(total) }} variant="ghost" className="text-white/70 hover:text-white h-11 px-4 rounded-full">
+            <RotateCcw className="h-4 w-4 mr-2" /> Reset
+          </Button>
+          <Button onClick={onComplete} variant="ghost" className="text-white/70 hover:text-white h-11 px-4 rounded-full text-xs uppercase tracking-widest font-bold">
+            <SkipForward className="h-4 w-4 mr-2" /> Skip
+          </Button>
+        </div>
+        <div className="mt-8 w-full grid grid-cols-3 gap-3 text-center text-xs text-white/60">
+          <DurationField label="Focus" v={focusMin} set={setFocusMin} />
+          <DurationField label="Short" v={shortMin} set={setShortMin} />
+          <DurationField label="Long" v={longMin} set={setLongMin} />
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+/* ----------------------------- Calendar ----------------------------- */
+interface AppEvent { id: string; title: string; when: string; isGoogle?: boolean }
+
+function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, setGoogleToken }: { open: boolean, onClose: () => void, user: User | null, gEvents: AppEvent[], setGEvents: (e: AppEvent[]) => void, googleToken: string | null, setGoogleToken: (t: string | null) => void }) {
+  const [localEvents, setLocalEvents] = useState<AppEvent[]>([])
+  const [remoteEvents, setRemoteEvents] = useState<AppEvent[]>([])
+  const [title, setTitle] = useState('')
+  const [when, setWhen] = useState('')
+  const [syncing, setSyncing] = useState(false)
+  const [view, setView] = useState<'month' | 'list'>('month')
+  const [selectedDate, setSelectedDate] = useState(new Date())
+
+  // Load local
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('oblivion.events')
+      if (raw) setLocalEvents(JSON.parse(raw))
+    } catch {}
+  }, [])
+
+  // Sync remote
+  useEffect(() => {
+    if (!user) return
+    const q = query(collection(db, 'users', user.uid, 'events'))
+    return onSnapshot(q, (snap) => {
+      setRemoteEvents(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppEvent)))
+    }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/events`))
+  }, [user])
+
+  const events = user ? remoteEvents : localEvents
+
+  const syncGoogle = async () => {
+    if (!user) return toast.error('Sign in to sync Google Calendar')
+    setSyncing(true)
+    try {
+      let token = googleToken
+      if (!token) {
+        toast('Connecting to Google...', { icon: '🔄' })
+        const res = await signInWithPopup(auth, googleProvider)
+        const cred = GoogleAuthProvider.credentialFromResult(res)
+        token = cred?.accessToken ?? null
+        if (!token) throw new Error('No access token')
+        setGoogleToken(token)
+      }
+      
+      toast('Fetching events...', { icon: '📅' })
+      const gRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + new Date().toISOString(), {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      const data = await gRes.json()
+      
+      if (data.items) {
+        const events: AppEvent[] = data.items.map((item: any) => ({
+          id: item.id,
+          title: item.summary || 'Google Event',
+          when: item.start?.dateTime || item.start?.date || new Date().toISOString(),
+          isGoogle: true
+        }))
+        setGEvents(events)
+        toast.success(`Synced ${events.length} events`)
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Sync failed. Check browser permissions.')
+    } finally { setSyncing(false) }
+  }
+
+  const add = async () => {
+    if (!title.trim() || !when) return
+    if (user) {
+      try {
+        const newEv = { userId: user.uid, title: title.trim(), when }
+        await addDoc(collection(db, 'users', user.uid, 'events'), newEv)
+      } catch (err) {
+        handleFirestoreError(err, 'create', `users/${user.uid}/events`)
+      }
+    } else {
+      const next = [...localEvents, { id: crypto.randomUUID(), title: title.trim(), when }].sort((a, b) => a.when.localeCompare(b.when))
+      setLocalEvents(next)
+      localStorage.setItem('oblivion.events', JSON.stringify(next))
+    }
+    setTitle(''); setWhen('')
+  }
+
+  const remove = async (id: string) => {
+    if (user) {
+      try {
+        await deleteDoc(doc(db, 'users', user.uid, 'events', id))
+      } catch (err) {
+        handleFirestoreError(err, 'delete', `users/${user.uid}/events/${id}`)
+      }
+    } else {
+      const next = localEvents.filter(e => e.id !== id)
+      setLocalEvents(next)
+      localStorage.setItem('oblivion.events', JSON.stringify(next))
+    }
+  }
+
+  const monthName = selectedDate.toLocaleString('default', { month: 'long' })
+  const year = selectedDate.getFullYear()
+  const daysInMonth = new Date(year, selectedDate.getMonth() + 1, 0).getDate()
+  const firstDay = new Date(year, selectedDate.getMonth(), 1).getDay()
+
+  const allEvents = useMemo(() => {
+    return [...events, ...gEvents].sort((a, b) => a.when.localeCompare(b.when))
+  }, [events, gEvents])
+
+  const upcoming = allEvents.filter(e => new Date(e.when).getTime() >= Date.now() - 60000)
+
+  return (
+    <Panel open={open} onClose={onClose} title="Agenda" icon={<CalendarDays className="h-4 w-4" />} width="max-w-4xl">
+      <div className="grid grid-cols-[320px_1fr] h-full min-h-0">
+        <div className="p-5 border-r border-white/10 flex flex-col min-h-0 bg-white/[0.02]">
+          <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-4 font-bold flex items-center justify-between">
+            <span>Add Event</span>
+            <button onClick={syncGoogle} className="hover:text-white transition-colors">Google Sync</button>
+          </div>
+          <div className="space-y-3">
+            <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="What's happening?"
+              className="bg-white/5 border-white/10 text-white placeholder:text-white/40 h-10 text-sm" />
+            <div className="space-y-2">
+              <input type="datetime-local" value={when} onChange={e => setWhen(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs focus:outline-none focus:border-white/30" />
+              <Button onClick={add} className="w-full bg-white/10 hover:bg-white/20 h-10 text-sm uppercase tracking-widest font-bold">Add to Agenda</Button>
+            </div>
+          </div>
+          
+          <div className="mt-8 flex-1 overflow-auto thin-scroll">
+            <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3 font-bold">Upcoming</div>
+            <div className="space-y-1">
+              {upcoming.length === 0 && <div className="text-white/20 text-[11px] py-4 text-center italic">A blank page exists ahead…</div>}
+              {upcoming.map(e => (
+                <div key={e.id} className="group flex items-start gap-3 p-3 rounded-xl hover:bg-white/5 transition-all">
+                  <div className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${e.isGoogle ? 'bg-blue-400' : 'bg-white/70'} glow-pulse`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] text-white/90 truncate font-medium">{e.title}</div>
+                    <div className="text-[10px] text-white/30 font-mono mt-0.5">{new Date(e.when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {new Date(e.when).toLocaleDateString([], { month: 'short', day: 'numeric' })}</div>
+                  </div>
+                  {!e.isGoogle && (
+                    <button onClick={() => remove(e.id)} className="opacity-0 group-hover:opacity-100 text-white/20 hover:text-red-400 transition-all p-1">
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col min-h-0">
+          <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <span className="text-lg font-bold text-white tracking-tight">{monthName} <span className="text-white/30">{year}</span></span>
+              <div className="flex bg-white/5 rounded-lg p-0.5">
+                <button onClick={() => setSelectedDate(new Date(year, selectedDate.getMonth() - 1, 1))} className="p-1 hover:text-white text-white/40"><ChevronRight className="h-4 w-4 rotate-180" /></button>
+                <button onClick={() => setSelectedDate(new Date(year, selectedDate.getMonth() + 1, 1))} className="p-1 hover:text-white text-white/40"><ChevronRight className="h-4 w-4" /></button>
+              </div>
+            </div>
+            <div className="flex bg-white/5 rounded-lg p-1 text-[10px] font-bold uppercase tracking-wider">
+              <button onClick={() => setView('month')} className={`px-3 py-1 rounded-md transition-all ${view === 'month' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white'}`}>Grid</button>
+              <button onClick={() => setView('list')} className={`px-3 py-1 rounded-md transition-all ${view === 'list' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white'}`}>Flow</button>
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-auto p-5 thin-scroll">
+            <div className="grid grid-cols-7 gap-px bg-white/5 border border-white/5 rounded-xl overflow-hidden shadow-2xl">
+              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                <div key={d} className="bg-white/[0.02] py-2 text-center text-[10px] font-bold uppercase tracking-widest text-white/30 border-b border-white/5">{d}</div>
+              ))}
+              {Array.from({ length: 42 }).map((_, i) => {
+                const day = i - firstDay + 1
+                const isCurrentMonth = day > 0 && day <= daysInMonth
+                const isToday = isCurrentMonth && day === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth() && year === new Date().getFullYear()
+                const dateStr = isCurrentMonth ? `${year}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null
+                const dayEvents = dateStr ? allEvents.filter(e => e.when.startsWith(dateStr)) : []
+
+                return (
+                  <div key={i} className={`min-h-[90px] p-2 bg-black/20 relative group transition-colors ${isCurrentMonth ? 'hover:bg-white/[0.04]' : 'opacity-20 pointer-events-none'}`}>
+                    <span className={`text-[11px] font-mono ${isToday ? 'h-6 w-6 bg-white text-black rounded-full flex items-center justify-center font-bold' : 'text-white/40'}`}>
+                      {isCurrentMonth ? day : ''}
+                    </span>
+                    <div className="mt-2 space-y-1">
+                      {dayEvents.slice(0, 3).map(e => (
+                        <div key={e.id} className={`text-[9px] px-1.5 py-0.5 rounded border truncate ${e.isGoogle ? 'bg-blue-500/10 border-blue-500/20 text-blue-300' : 'bg-white/5 border-white/10 text-white/70'}`}>
+                          {e.title}
+                        </div>
+                      ))}
+                      {dayEvents.length > 3 && <div className="text-[8px] text-white/20 pl-1">+{dayEvents.length - 3} more</div>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+/* ----------------------------- Spotify ----------------------------- */
+function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify, user }: { 
+  open: boolean, 
+  onClose: () => void, 
+  playlistId: string, 
+  setPlaylistId: (id: string) => void, 
+  connectSpotify: () => void, 
+  user: User | null
+}) {
+  const [isConnected, setIsConnected] = useState(false)
+
+  useEffect(() => {
+    if (!user) return
+    return onSnapshot(doc(db, 'users', user.uid, 'integrations', 'spotify'), (snap) => {
+      setIsConnected(snap.exists())
+    }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/integrations/spotify`))
+  }, [user])
+
+  return (
+    <Panel open={open} onClose={onClose} title="Focus Playlists" icon={<Music2 className="h-4 w-4" />} width="max-w-xl">
+      <div className="p-8 space-y-8 h-full overflow-y-auto thin-scroll">
+        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div>
+            <div className="text-xs uppercase tracking-[0.25em] text-white/30 font-bold mb-1">Curation</div>
+            <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">Choose your vibe</h2>
+          </div>
+          <button onClick={connectSpotify} className={`px-4 py-2 rounded-xl text-[10px] uppercase font-bold tracking-widest flex items-center gap-2 border transition-all h-fit ${isConnected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-white/5 border-white/10 text-white/50 hover:bg-green-500/10 hover:border-green-500/30 hover:text-green-400'}`}>
+            {isConnected ? <><Check className="h-4 w-4" /> Connected</> : <><Music2 className="h-4 w-4" /> Link Spotify</>}
+          </button>
+        </header>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-8">
+          {PLAYLISTS.map(p => (
+            <button 
+              key={p.id} 
+              onClick={() => setPlaylistId(p.id)}
+              className={`group relative p-5 rounded-2xl transition-all border flex items-center gap-4 text-left overflow-hidden ${
+                playlistId === p.id 
+                  ? 'bg-white border-white scale-[1.02] shadow-xl shadow-white/10' 
+                  : 'bg-white/[0.03] border-white/5 hover:border-white/20 hover:bg-white/[0.06]'
+              }`}
+            >
+              <div className={`shrink-0 h-12 w-12 rounded-xl flex items-center justify-center transition-colors ${playlistId === p.id ? 'bg-black/10' : 'bg-white/5 group-hover:bg-white/10'}`}>
+                <Music2 className={`h-6 w-6 ${playlistId === p.id ? 'text-black' : 'text-white/40'}`} />
+              </div>
+              <div className="flex flex-col">
+                <span className={`text-[11px] font-black uppercase tracking-[0.15em] ${playlistId === p.id ? 'text-black' : 'text-white'}`}>{p.name}</span>
+                <span className={`text-[10px] font-medium opacity-40 ${playlistId === p.id ? 'text-black' : 'text-white'}`}>Open on your dock</span>
+              </div>
+              {playlistId === p.id && (
+                <div className="absolute right-4">
+                  <div className="h-2 w-2 rounded-full bg-black animate-ping" />
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+
+        <div className="rounded-3xl border border-white/10 p-8 flex flex-col items-center justify-center text-center bg-white/[0.01] relative overflow-hidden group">
+           <div className="relative z-10">
+             <div className="h-14 w-14 rounded-2xl bg-white/5 flex items-center justify-center mb-4 mx-auto group-hover:scale-110 transition-transform">
+               <Sparkles className="h-7 w-7 text-white/20" />
+             </div>
+             <div className="text-xs text-white/50 font-bold uppercase tracking-widest mb-1">Persistent Audio</div>
+             <div className="text-[10px] text-white/20 leading-relaxed max-w-[200px]">Music continues playing in the background while you focus.</div>
+           </div>
+           <div className="absolute top-0 right-0 -mt-8 -mr-8 h-32 w-32 bg-white/5 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+/* ----------------------------- Persistent Music Player ----------------------------- */
+function PersistentMusicPlayer({ playlistId, visible }: { playlistId: string, visible: boolean }) {
+  return (
+    <div 
+      className="fixed transition-all duration-700 ease-in-out z-50 overflow-hidden rounded-2xl shadow-2xl border border-white/10 bg-black/40"
+      style={{ 
+        bottom: visible ? '100px' : '-500px', 
+        right: '2rem', 
+        width: '310px', 
+        height: '400px',
+        opacity: visible ? 1 : 0,
+        pointerEvents: visible ? 'auto' : 'none',
+        visibility: 'visible', // Keep it rendered
+      }}
+    >
+      <iframe 
+        key={playlistId} 
+        title="Spotify"
+        src={`https://open.spotify.com/embed/playlist/${playlistId}?utm_source=oblivion&theme=0`}
+        width="100%" 
+        height="100%" 
+        frameBorder="0"
+        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+        loading="lazy" 
+      />
+    </div>
+  )
+}
+
+/* ----------------------------- Settings ----------------------------- */
+function Section({ title, children }: { title: string, children: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-[0.25em] text-white/40 mb-3">{title}</div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  )
+}
+function Row({ label, children }: { label: string, children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <div className="text-sm text-white/80">{label}</div>
+      <div>{children}</div>
+    </div>
+  )
+}
+interface AppSettings { name: string; showGreeting: boolean; bgId: string; rain: number; blur: number; dim: number; grain: boolean; clockSize: number }
+function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, connectClickUp }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, connectClickUp: () => void }) {
+  const [redirectUris, setRedirectUris] = useState<{ spotify: string, clickup: string } | null>(null)
+  
+  useEffect(() => {
+    if (open) {
+      const base = window.location.origin
+      setRedirectUris({
+        spotify: `${base}/auth/spotify/callback`,
+        clickup: `${base}/api/auth/clickup/callback`
+      })
+    }
+  }, [open])
+
+  const upd = (k: keyof AppSettings, v: any) => setSettings({ ...settings, [k]: v })
+  return (
+    <Panel open={open} onClose={onClose} title="Settings" icon={<SettingsIcon className="h-4 w-4" />} width="max-w-xl">
+      <div className="p-5 space-y-6 overflow-auto thin-scroll max-h-[70vh]">
+        <Section title="Cloud Sync">
+          {!user ? (
+            <Button onClick={login} className="w-full bg-white text-black hover:bg-white/90">
+              <Sparkles className="h-4 w-4 mr-2" /> Sign in with Google
+            </Button>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between bg-white/5 p-3 rounded-xl">
+                <div className="flex items-center gap-3">
+                  <img src={user.photoURL || ''} className="h-8 w-8 rounded-full" alt="" />
+                  <div>
+                    <div className="text-xs font-bold text-white">{user.displayName}</div>
+                    <div className="text-[10px] text-white/40">{user.email}</div>
+                  </div>
+                </div>
+                <Button variant="ghost" size="sm" onClick={logout} className="text-[10px] uppercase tracking-widest text-white/40 hover:text-red-400">Sign Out</Button>
+              </div>
+              <div className="text-[10px] text-white/40 italic px-1">Settings, notes, and tasks are now synced across devices.</div>
+            </div>
+          )}
+          <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-2 gap-3">
+             <Button variant="outline" onClick={connectSpotify} className="border-white/10 text-white/80 hover:bg-white/5 h-10 text-[10px] uppercase tracking-wider font-bold">
+               <Music2 className="h-3.5 w-3.5 mr-2" /> Spotify
+             </Button>
+             <Button variant="outline" onClick={connectClickUp} className="border-white/10 text-white/80 hover:bg-white/5 h-10 text-[10px] uppercase tracking-wider font-bold">
+               <span className="h-3.5 w-3.5 mr-2 flex items-center justify-center bg-blue-500 rounded-sm text-[8px] text-white">C</span> ClickUp
+             </Button>
+          </div>
+          {redirectUris && (
+            <div className="mt-4 p-3 rounded-lg bg-white/5 border border-white/10 space-y-3">
+              <div className="text-[10px] uppercase tracking-widest text-white/40 font-bold">OAuth Configuration</div>
+              <div className="space-y-1.5">
+                <div className="text-[9px] text-white/60">Add these to your provider redirect URIs:</div>
+                <div className="p-1.5 bg-black/40 rounded border border-white/5 font-mono text-[9px] break-all select-all text-[#1DB954]">
+                  {redirectUris.spotify}
+                </div>
+                <div className="p-1.5 bg-black/40 rounded border border-white/5 font-mono text-[9px] break-all select-all text-blue-400">
+                  {redirectUris.clickup}
+                </div>
+              </div>
+            </div>
+          )}
+        </Section>
+        <Section title="Scene">
+          <div className="grid grid-cols-3 gap-2">
+            {BACKGROUNDS.map(b => (
+              <button key={b.id} onClick={() => upd('bgId', b.id)}
+                className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all ${settings.bgId === b.id ? 'border-white' : 'border-transparent hover:border-white/30'}`}>
+                <img src={b.url} alt={b.name} className="w-full h-full object-cover" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                <span className="absolute bottom-1 left-2 text-[11px] text-white/90">{b.name}</span>
+              </button>
+            ))}
+          </div>
+        </Section>
+        <Section title="Atmosphere">
+          <Row label={`Rain intensity · ${settings.rain}%`}>
+            <Slider value={[settings.rain]} min={0} max={100} step={1} onValueChange={v => upd('rain', v[0])} className="max-w-xs w-48" />
+          </Row>
+          <Row label={`Background blur · ${settings.blur}px`}>
+            <Slider value={[settings.blur]} min={0} max={20} step={1} onValueChange={v => upd('blur', v[0])} className="max-w-xs w-48" />
+          </Row>
+          <Row label={`Dim · ${settings.dim}%`}>
+            <Slider value={[settings.dim]} min={0} max={80} step={1} onValueChange={v => upd('dim', v[0])} className="max-w-xs w-48" />
+          </Row>
+          <Row label="Film grain">
+            <Switch checked={settings.grain} onCheckedChange={v => upd('grain', v)} />
+          </Row>
+        </Section>
+        <Section title="Clock">
+          <Row label={`Clock size · ${settings.clockSize.toFixed(2)}x`}>
+            <Slider value={[settings.clockSize * 100]} min={60} max={140} step={2}
+              onValueChange={v => upd('clockSize', v[0] / 100)} className="max-w-xs w-48" />
+          </Row>
+        </Section>
+      </div>
+    </Panel>
+  )
+}
+
+/* ----------------------------- Dock ----------------------------- */
+const DOCK_ITEMS = [
+  { id: 'home', icon: Home, label: 'Home' },
+  { id: 'notes', icon: StickyNote, label: 'Notes' },
+  { id: 'tasks', icon: ListChecks, label: 'Checklist' },
+  { id: 'stats', icon: BarChart2, label: 'Stats' },
+  { id: 'pomo', icon: Timer, label: 'Pomodoro' },
+  { id: 'cal', icon: CalendarDays, label: 'Agenda' },
+  { id: 'music', icon: Music2, label: 'Music' },
+  { id: 'settings', icon: SettingsIcon, label: 'Settings' },
+  { id: 'fs', icon: Maximize2, label: 'Fullscreen' },
+] as const
+function Dock({ onAction, isFullscreen }: { onAction: (id: string) => void, isFullscreen: boolean }) {
+  const [hovered, setHovered] = useState<string | null>(null)
+  return (
+    <motion.div
+      initial={{ y: 60, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
+      transition={{ duration: 0.8, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
+      className="fixed left-1/2 -translate-x-1/2 bottom-6 z-30"
+    >
+      <div className="glass dock-shadow rounded-full px-2 py-2 flex items-center gap-1 overflow-x-auto no-scrollbar max-w-[90vw]">
+        {DOCK_ITEMS.map(it => {
+          const Icon = it.id === 'fs' && isFullscreen ? Minimize2 : it.icon
+          return (
+            <div key={it.id} className="relative">
+              <AnimatePresence>
+                {hovered === it.id && (
+                  <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 6 }}
+                    className="absolute -top-9 left-1/2 -translate-x-1/2 px-2.5 py-1 rounded-md text-[11px] bg-black/70 border border-white/10 text-white/90 whitespace-nowrap">
+                    {it.label}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+              <motion.button
+                onMouseEnter={() => setHovered(it.id)} onMouseLeave={() => setHovered(null)}
+                onClick={() => onAction(it.id)}
+                whileHover={{ scale: 1.18, y: -6 }} whileTap={{ scale: 0.92 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+                className="h-11 w-11 rounded-full flex items-center justify-center text-white/80 hover:text-white hover:bg-white/10 transition-colors"
+                aria-label={it.label}
+              >
+                <Icon className="h-5 w-5" />
+              </motion.button>
+            </div>
+          )
+        })}
+      </div>
+    </motion.div>
+  )
+}
+
+/* ----------------------------- Quote Pill ----------------------------- */
+function QuotePill() {
+  const [q, setQ] = useState<{ q: string; a: string } | null>(null)
+  useEffect(() => { fetch('/api/quotes').then(r => r.json()).then(setQ).catch(() => {}) }, [])
+  if (!q) return null
+  return (
+    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.2, duration: 1 }}
+      className="fixed bottom-28 left-8 text-left w-full max-w-xs z-10 hidden md:block">
+      <div className="italic font-serif text-lg text-white/40 leading-relaxed">&ldquo;{q.q}&rdquo;</div>
+      <div className="mt-2 text-[9px] uppercase tracking-[0.25em] text-white/20">— {q.a}</div>
+    </motion.div>
+  )
+}
+
+/* ----------------------------- App ----------------------------- */
+const DEFAULT_SETTINGS: AppSettings = {
+  name: '', showGreeting: true, bgId: 'tokyo-rain-1',
+  rain: 55, blur: 4, dim: 45, grain: true, clockSize: 1,
+}
+
+const App = () => {
+  const [user, setUser] = useState<User | null>(null)
+  const [googleToken, setGoogleToken] = useState<string | null>(null)
+  const [settings, setSettings] = useSynced<AppSettings>('oblivion.settings', DEFAULT_SETTINGS, user)
+  const [open, setOpen] = useState<string | null>(null)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const [playlistId, setPlaylistId] = useState(PLAYLISTS[0].id)
+  const [mounted, setMounted] = useState(false)
+
+  const [gEvents, setGEvents] = useState<AppEvent[]>([])
+
+  // Pomodoro State Lifted
+  const [pomoMode, setPomoMode] = useState<'focus' | 'short' | 'long'>('focus')
+  const [pomoFocusMin, setPomoFocusMin] = useLocal('oblivion.pomodoro.focus', 25)
+  const [pomoShortMin, setPomoShortMin] = useLocal('oblivion.pomodoro.short', 5)
+  const [pomoLongMin, setPomoLongMin] = useLocal('oblivion.pomodoro.long', 15)
+  const [pomoRunning, setPomoRunning] = useState(false)
+  const [pomoCycles, setPomoCycles] = useLocal('oblivion.pomodoro.cycles', 0)
+  
+  const pomoTotal = useMemo(() => (pomoMode === 'focus' ? pomoFocusMin : pomoMode === 'short' ? pomoShortMin : pomoLongMin) * 60, [pomoMode, pomoFocusMin, pomoShortMin, pomoLongMin])
+  const [pomoRemaining, setPomoRemaining] = useState(pomoTotal)
+
+  const handlePomoComplete = useCallback(() => {
+    const playNotification = (type: 'focus' | 'break') => {
+      const url = type === 'focus' 
+        ? 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' 
+        : 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
+      const audio = new Audio(url);
+      audio.volume = 0.5;
+      audio.play().catch(() => {});
+    };
+
+    if (pomoMode === 'focus') {
+      setPomoCycles(c => c + 1)
+      toast.success('Focus session complete · take a break')
+      playNotification('focus');
+      
+      if (user) {
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        const day = days[new Date().getDay()]
+        addDoc(collection(db, 'users', user.uid, 'sessions'), {
+          userId: user.uid,
+          duration: pomoFocusMin,
+          timestamp: Date.now(),
+          day: day
+        }).catch(err => handleFirestoreError(err, 'create', `users/${user.uid}/sessions`))
+      }
+
+      setPomoMode((pomoCycles + 1) % 4 === 0 ? 'long' : 'short')
+    } else {
+      toast('Break is over · back to focus')
+      playNotification('break');
+      setPomoMode('focus')
+    }
+  }, [pomoMode, pomoCycles, setPomoCycles, user, pomoFocusMin])
+
+  useEffect(() => {
+    setMounted(true)
+    return onAuthStateChanged(auth, (u) => setUser(u))
+  }, [])
+
+  useEffect(() => {
+    setPomoRemaining(pomoTotal)
+    setPomoRunning(false)
+  }, [pomoMode, pomoFocusMin, pomoShortMin, pomoLongMin, pomoTotal])
+
+  useEffect(() => {
+    if (!pomoRunning) return
+    const id = setInterval(() => {
+      setPomoRemaining(r => {
+        if (r <= 1) {
+          clearInterval(id)
+          setPomoRunning(false)
+          handlePomoComplete()
+          return 0
+        }
+        return r - 1
+      })
+    }, 1000)
+    return () => clearInterval(id)
+  }, [pomoRunning, handlePomoComplete])
+
+  const login = async () => {
+    try {
+      const res = await signInWithPopup(auth, googleProvider)
+      if (res.user && !settings.name) setSettings(s => ({ ...s, name: res.user.displayName || '' }))
+    } catch (err) {
+      toast.error('Sign in failed')
+    }
+  }
+
+  const logout = () => signOut(auth)
+
+  const connectSpotify = async () => {
+    try {
+      const res = await fetch('/api/auth/spotify/url')
+      const { url } = await res.json()
+      window.open(url, 'spotify_auth', 'width=600,height=700')
+    } catch {
+      toast.error('Failed to initiate Spotify connection')
+    }
+  }
+
+  const connectClickUp = async () => {
+    try {
+      const res = await fetch('/api/auth/clickup/url')
+      const { url } = await res.json()
+      window.open(url, 'clickup_auth', 'width=600,height=700')
+    } catch {
+      toast.error('Failed to initiate ClickUp connection')
+    }
+  }
+
+  useEffect(() => {
+    const handleMessage = async (e: MessageEvent) => {
+      // Valid origins for postMessage
+      const origin = e.origin;
+      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) return;
+
+      if (e.data?.type === 'SPOTIFY_AUTH_SUCCESS' && e.data?.code) {
+        toast('Syncing with Spotify...', { icon: '🎵' })
+        try {
+          const response = await fetch('/api/auth/spotify/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: e.data.code })
+          })
+          const tokens = await response.json()
+          
+          if (tokens.access_token && user) {
+            await setDoc(doc(db, 'users', user.uid, 'integrations', 'spotify'), {
+              ...tokens,
+              updatedAt: Date.now()
+            })
+            toast.success('Spotify connected successfully')
+          }
+        } catch (err) {
+          toast.error('Failed to link Spotify account')
+        }
+      }
+
+      if (e.data?.type === 'CLICKUP_AUTH_SUCCESS' && e.data?.code) {
+        toast('Syncing with ClickUp...', { icon: '🎯' })
+        try {
+          const response = await fetch('/api/auth/clickup/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code: e.data.code })
+          })
+          const tokens = await response.json()
+          
+          if (tokens.access_token && user) {
+            await setDoc(doc(db, 'users', user.uid, 'integrations', 'clickup'), {
+              ...tokens,
+              updatedAt: Date.now()
+            })
+            toast.success('ClickUp connected successfully')
+          }
+        } catch (err) {
+          toast.error('Failed to link ClickUp account')
+        }
+      }
+    }
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [user])
+
+  const bg = BACKGROUNDS.find(b => b.id === settings.bgId) || BACKGROUNDS[0]
+
+  const toggleFullscreen = useCallback(() => {
+    if (typeof document === 'undefined') return
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen?.().then(() => setIsFullscreen(true)).catch(() => {})
+    } else {
+      document.exitFullscreen?.().then(() => setIsFullscreen(false)).catch(() => {})
+    }
+  }, [])
+
+  const dispatch = (id: string) => {
+    if (id === 'home') setOpen(null)
+    else if (id === 'fs') toggleFullscreen()
+    else if (['notes', 'tasks', 'stats', 'pomo', 'cal', 'music', 'settings'].includes(id)) setOpen(id)
+  }
+
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') return
+      const k = e.key.toLowerCase()
+      if (k === 'escape') return setOpen(null)
+      if (k === 'n') setOpen('notes')
+      else if (k === 't') setOpen('tasks')
+      else if (k === 's') setOpen('stats')
+      else if (k === 'p') setOpen('pomo')
+      else if (k === 'c') setOpen('cal')
+      else if (k === 'm') setOpen('music')
+      else if (k === ',') setOpen('settings')
+      else if (k === 'f') toggleFullscreen()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [toggleFullscreen])
+
+  return (
+    <div className="relative w-screen h-screen overflow-hidden text-[#e0d8d0]">
+      <Toaster position="top-right" toastOptions={{ className: 'glass text-white border-white/20' }} />
+      <AnimatePresence mode="sync">
+        <motion.div key={bg.id}
+          initial={{ opacity: 0, scale: 1.04 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: 1.6, ease: [0.22, 1, 0.36, 1] }}
+          className="absolute inset-0"
+        >
+          <img src={bg.url} alt="" className="absolute inset-0 w-full h-full object-cover"
+            style={{ filter: `blur(${settings.blur}px)`, transform: 'scale(1.05)' }} />
+          <div className="absolute inset-0 opacity-40 pointer-events-none density-gradient" />
+          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, rgba(0,0,0,0.1), rgba(0,0,0,${settings.dim / 100}) 80%)` }} />
+          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/60" />
+        </motion.div>
+      </AnimatePresence>
+
+      {mounted && settings.rain > 0 && <Rain intensity={settings.rain} />}
+      {mounted && settings.grain && <div className="grain" />}
+
+      <WeatherWidget />
+
+      <div className="absolute top-8 right-8 flex gap-4 text-[10px] tracking-widest font-mono uppercase z-20 items-center">
+        {!user ? (
+          <button onClick={login} className="text-white hover:text-white transition-all bg-white/5 border border-white/10 rounded-full px-3 py-1 mr-2 flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
+            Sign in to sync
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 mr-2 text-white/40">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
+            <span className="normal-case font-sans tracking-normal">{user.displayName}</span>
+          </div>
+        )}
+        <div className="hidden md:block font-mono text-white/30">(N) Notes</div>
+        <div className="hidden md:block font-mono text-white/30">(T) Tasks</div>
+        <div className="hidden md:block font-mono text-white/30">(P) Focus</div>
+        <div className="hidden md:block font-mono text-white/30">(F) Fullscreen</div>
+      </div>
+
+      <div className="relative z-10 h-full w-full flex flex-col items-center justify-center px-6 gap-6">
+        {settings.showGreeting && mounted && <Greeting name={settings.name} />}
+        <Clock size={settings.clockSize} />
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8, duration: 1 }}
+          className="flex items-center gap-2 -mt-8">
+          <button onClick={() => setOpen('tasks')}
+            className="rounded-full px-4 py-2 text-[10px] uppercase tracking-widest text-white/30 hover:text-white transition-colors flex items-center gap-2">
+            What will you focus on?
+            <ChevronRight className="h-3 w-3" />
+          </button>
+        </motion.div>
+      </div>
+
+      <div onClick={() => setOpen('pomo')} className="fixed bottom-8 right-8 hidden md:flex items-center gap-4 glass-strong px-5 py-3 rounded-2xl z-20 shadow-2xl border-white/5 animate-in fade-in slide-in-from-bottom-4 duration-1000 cursor-pointer hover:bg-white/5 transition-colors group">
+        <div className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-xs shadow-inner border border-white/5 group-hover:border-white/20 transition-colors">
+          <Timer className={`h-5 w-5 ${pomoRunning ? 'text-white' : 'text-white/40'}`} />
+        </div>
+        <div className="flex flex-col pr-2">
+          <div className="text-[11px] font-bold text-white/80 uppercase tracking-widest">
+            {pomoRunning ? (
+              <span className="flex items-center gap-2">
+                {Math.floor((pomoTotal - pomoRemaining) / 60)}:{String((pomoTotal - pomoRemaining) % 60).padStart(2, '0')} Elapsed
+              </span>
+            ) : 'Session Progress'}
+          </div>
+          <div className="text-[10px] text-white/40 uppercase tracking-wider font-medium mt-0.5">
+            {pomoRunning ? `${pomoMode} session active` : 'Ready for deep work'}
+          </div>
+        </div>
+      </div>
+
+      <QuotePill />
+
+      <StatsPanel 
+        open={open === 'stats'} 
+        onClose={() => setOpen(null)} 
+        user={user} 
+        pomoCycles={pomoCycles} 
+        setPomoCycles={setPomoCycles} 
+        pomoRunning={pomoRunning}
+        pomoRemaining={pomoRemaining}
+        pomoTotal={pomoTotal}
+        pomoMode={pomoMode}
+      />
+      <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} connectClickUp={connectClickUp} />
+      <ChecklistPanel open={open === 'tasks'} onClose={() => setOpen(null)} user={user} connectClickUp={connectClickUp} googleToken={googleToken} setGoogleToken={setGoogleToken} />
+      <PomodoroPanel 
+        open={open === 'pomo'} 
+        onClose={() => setOpen(null)}
+        mode={pomoMode}
+        setMode={setPomoMode}
+        focusMin={pomoFocusMin}
+        setFocusMin={setPomoFocusMin}
+        shortMin={pomoShortMin}
+        setShortMin={setPomoShortMin}
+        longMin={pomoLongMin}
+        setLongMin={setPomoLongMin}
+        running={pomoRunning}
+        setRunning={setPomoRunning}
+        remaining={pomoRemaining}
+        setRemaining={setPomoRemaining}
+        total={pomoTotal}
+        cycles={pomoCycles}
+        onComplete={handlePomoComplete}
+      />
+      <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
+      <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
+      <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} connectClickUp={connectClickUp} />
+
+      <PersistentMusicPlayer playlistId={playlistId} visible={open === 'music'} />
+      <Dock onAction={dispatch} isFullscreen={isFullscreen} />
+    </div>
+  )
+}
+
+export default App
