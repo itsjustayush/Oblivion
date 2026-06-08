@@ -19,7 +19,9 @@
         "userId": { "type": "string" },
         "title": { "type": "string" },
         "body": { "type": "string" },
-        "updatedAt": { "type": "number" }
+        "updatedAt": { "type": "number" },
+        "pinned": { "type": "boolean" },
+        "color": { "type": "string" }
       },
       "required": ["userId", "title"]
     },
@@ -42,7 +44,9 @@
       "properties": {
         "userId": { "type": "string" },
         "title": { "type": "string" },
-        "when": { "type": "string" }
+        "when": { "type": "string" },
+        "googleEventId": { "type": "string" },
+        "isGoogle": { "type": "boolean" }
       },
       "required": ["userId", "title", "when"]
     },

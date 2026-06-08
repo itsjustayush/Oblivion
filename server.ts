@@ -1,6 +1,26 @@
 import express from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { GoogleGenAI, Modality } from "@google/genai";
+
+let genAIClient: GoogleGenAI | null = null;
+function getGenAI() {
+  if (!genAIClient) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error("GEMINI_API_KEY environment variable is required");
+    }
+    genAIClient = new GoogleGenAI({
+      apiKey: apiKey,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
+  }
+  return genAIClient;
+}
 
 const quotes = [
   { q: "The cave you fear to enter holds the treasure you seek.", a: "Joseph Campbell" },
@@ -227,6 +247,170 @@ async function startServer() {
     } catch (err) {
       console.error('ClickUp Docs Sync Error:', err);
       res.status(500).json({ error: 'Failed to fetch docs from ClickUp' });
+    }
+  });
+
+  // Personal Agent Gemini Interact Endpoint
+  app.post("/api/agent/interact", async (req, res) => {
+    const { prompt, history, documents, limitLength = true } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: "No prompt provided" });
+    }
+
+    try {
+      const ai = getGenAI();
+
+      let systemInstruction = "You are Oblivion Agent, the user's highly brainy personal voice assistant. " +
+        "You have a sleek, calming, futuristic cyber-aesthetic voice. " +
+        "You speak directly, naturally, and warmly. " +
+        (limitLength 
+          ? "Keep your responses extremely concise (1 to 3 short sentences maximum) so that it is readable and perfectly suitable for text-to-speech vocalization. " 
+          : "Provide a comprehensive but friendly response. ") +
+        "You can search Google regarding real-time details of events, coding, news, or articles if needed. " +
+        "Keep formatting clean and without heavy Markdown if limitLength is true, so that speech synthesizers don't read raw markdown asterisks or blockquotes.";
+
+      if (documents && Array.isArray(documents) && documents.length > 0) {
+        systemInstruction += "\n\nHere are some documents, articles, or notes provided by the user for context:\n" +
+          documents.map((d: any) => `[[TITLE: ${d.title || "Untitled"}]]\n${d.content || ""}`).join("\n\n");
+      }
+
+      let contents: any[] = [];
+      if (history && Array.isArray(history) && history.length > 0) {
+        contents = history.map((m: any) => ({
+          role: m.sender === "user" ? "user" : "model",
+          parts: [{ text: m.text }]
+        }));
+      } else {
+        contents = [{ role: "user", parts: [{ text: prompt }] }];
+      }
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents,
+        config: {
+          systemInstruction,
+          tools: [{ googleSearch: {} }],
+        }
+      });
+
+      const text = response.text || "";
+
+      // Extract search grounding metadata sources
+      const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+      const sources = chunks ? chunks.map((c: any) => {
+        if (c.web) {
+          return { title: c.web.title, uri: c.web.uri };
+        }
+        return null;
+      }).filter(Boolean) : [];
+
+      res.json({ text, sources });
+    } catch (err: any) {
+      console.error("Gemini Agent Error:", err);
+      res.status(500).json({ error: err.message || "Failed to generate AI response" });
+    }
+  });
+
+  // Personal Agent Text-to-Speech Endpoint
+  app.post("/api/agent/tts", async (req, res) => {
+    const { text, voice = "Zephyr" } = req.body; // prebuilt voices: Zephyr, Kore, Puck, or Sarvam voices
+    if (!text) {
+      return res.status(400).json({ error: "No text provided for TTS" });
+    }
+
+    try {
+      // Strip basic markdown tags to prevent TTS reading "asterisk asterisk"
+      const cleanText = text
+        .replace(/\*\*?/g, "")
+        .replace(/`{1,3}/g, "")
+        .replace(/#+\s+/g, "")
+        .replace(/-\s+/g, "")
+        .trim();
+
+      const sarvamVoices = ["meera", "pavan", "kamlesh", "arvind", "lata", "reema"];
+      const lowerVoice = voice.toLowerCase();
+      const isSarvamVoice = sarvamVoices.includes(lowerVoice) || lowerVoice.startsWith("sarvam");
+
+      if (isSarvamVoice) {
+        // Sarvam.ai TTS integration
+        const sarvamApiKey = process.env.SARVAM_API_KEY || "sk_jq8at0h2_ztxBambU22tHxRL8xvOHIqEI";
+        
+        let speaker = "meera";
+        for (const sv of sarvamVoices) {
+          if (lowerVoice.includes(sv)) {
+            speaker = sv;
+            break;
+          }
+        }
+
+        // Detect Hindi or default to en-IN
+        let targetLanguageCode = "en-IN";
+        const hasHindiCheck = /[\u0900-\u097F]/.test(cleanText);
+        if (hasHindiCheck) {
+          targetLanguageCode = "hi-IN";
+        }
+
+        console.log(`[Sarvam TTS] Requesting speaker=${speaker}, language=${targetLanguageCode}`);
+
+        const sarvamRes = await fetch("https://api.sarvam.ai/v1/text-to-speech", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "api-subscription-key": sarvamApiKey
+          },
+          body: JSON.stringify({
+            inputs: [cleanText],
+            target_language_code: targetLanguageCode,
+            speaker: speaker,
+            pitch: 0.5,
+            pace: 1.0,
+            loudness: 1.5,
+            speech_sample_rate: 8000,
+            enable_preprocessing: true,
+            model: "bulbul:v1"
+          })
+        });
+
+        if (!sarvamRes.ok) {
+          const errMsg = await sarvamRes.text();
+          console.error(`[Sarvam TTS] Error status: ${sarvamRes.status}, response: ${errMsg}`);
+          throw new Error(`Sarvam AI returned error: ${errMsg || sarvamRes.statusText}`);
+        }
+
+        const data: any = await sarvamRes.json();
+        if (data && data.audios && data.audios.length > 0) {
+          console.log("[Sarvam TTS] Generated speech successfully");
+          return res.json({ audio: data.audios[0], isWav: true });
+        } else {
+          throw new Error("No audios elements returned by Sarvam AI");
+        }
+      }
+
+      // Default: Gemini TTS
+      const ai = getGenAI();
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.1-flash-tts-preview",
+        contents: [{ parts: [{ text: `Say warmly: ${cleanText}` }] }],
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: voice }
+            }
+          }
+        }
+      });
+
+      const base64Audio = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (!base64Audio) {
+        throw new Error("No audio data returned from Gemini TTS");
+      }
+
+      res.json({ audio: base64Audio, isWav: false });
+    } catch (err: any) {
+      console.error("TTS Provider Error:", err);
+      res.status(500).json({ error: err.message || "Failed to generate voice speech" });
     }
   });
 

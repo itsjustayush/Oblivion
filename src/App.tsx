@@ -12,7 +12,8 @@ import {
   Maximize2, Minimize2, Plus, Trash2, X, Search, Play, Pause, RotateCcw, SkipForward,
   Check, Sparkles, Quote as QuoteIcon, ChevronRight,
   Navigation, CloudSun, Thermometer, Wind, Droplets, Info,
-  BarChart2, Flame, Zap, Brain, LayoutList, Coffee
+  BarChart2, Flame, Zap, Brain, LayoutList, Coffee,
+  Pin, PinOff, Palette, ListTodo
 } from 'lucide-react'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { Button } from '@/src/components/ui/button'
@@ -52,8 +53,10 @@ const app = initializeApp(firebaseConfig);
 const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
-googleProvider.addScope('https://www.googleapis.com/auth/calendar.events.readonly');
+googleProvider.addScope('https://www.googleapis.com/auth/calendar');
 googleProvider.addScope('https://www.googleapis.com/auth/tasks');
+
+import { AIAgentBlob } from './components/AIAgentBlob';
 
 /* ----------------------------- Firestore Error Handler ----------------------------- */
 function handleFirestoreError(error: unknown, op: string, path: string) {
@@ -651,8 +654,21 @@ function StatsPanel({ open, onClose, user, pomoCycles, setPomoCycles, pomoRunnin
 }
 
 /* ----------------------------- Notes ----------------------------- */
-interface Note { id: string; title: string; body: string; updatedAt: number }
-function NotesPanel({ open, onClose, user, connectClickUp }: { open: boolean, onClose: () => void, user: User | null, connectClickUp: () => void }) {
+interface Note { id: string; title: string; body: string; updatedAt: number; color?: string; pinned?: boolean }
+
+const KEEP_COLORS: { [key: string]: { name: string, bg: string, text: string, dot: string, border: string } } = {
+  default: { name: 'Default', bg: 'bg-white/5 border-white/10 hover:bg-white/10', text: 'text-white', dot: 'bg-white/10 border-white/20', border: 'border-white/10' },
+  red: { name: 'Red', bg: 'bg-red-950/20 border-red-500/30 hover:bg-red-950/30', text: 'text-red-200', dot: 'bg-red-500/80 border-red-400', border: 'border-red-500/25' },
+  orange: { name: 'Orange', bg: 'bg-orange-950/25 border-orange-850/30 hover:bg-orange-950/35', text: 'text-orange-200', dot: 'bg-orange-500/80 border-orange-400', border: 'border-orange-500/25' },
+  yellow: { name: 'Yellow', bg: 'bg-yellow-950/20 border-yellow-850/20 hover:bg-yellow-950/30', text: 'text-yellow-105', dot: 'bg-yellow-500/80 border-yellow-400', border: 'border-yellow-500/20' },
+  green: { name: 'Green', bg: 'bg-emerald-950/20 border-emerald-800/30 hover:bg-emerald-950/30', text: 'text-emerald-200', dot: 'bg-emerald-500/80 border-emerald-400', border: 'border-emerald-500/25' },
+  teal: { name: 'Teal', bg: 'bg-teal-950/20 border-teal-800/30 hover:bg-teal-950/30', text: 'text-teal-200', dot: 'bg-teal-500/80 border-teal-400', border: 'border-teal-500/25' },
+  blue: { name: 'Blue', bg: 'bg-blue-950/25 border-blue-800/30 hover:bg-blue-950/35', text: 'text-blue-200', dot: 'bg-blue-500/80 border-blue-400', border: 'border-blue-500/25' },
+  purple: { name: 'Purple', bg: 'bg-purple-950/20 border-purple-800/30 hover:bg-purple-950/30', text: 'text-purple-200', dot: 'bg-purple-500/80 border-purple-400', border: 'border-purple-500/25' },
+  pink: { name: 'Pink', bg: 'bg-rose-950/20 border-rose-800/30 hover:bg-rose-950/30', text: 'text-rose-200', dot: 'bg-rose-500/80 border-rose-400', border: 'border-rose-500/25' },
+}
+
+function NotesPanel({ open, onClose, user, connectClickUp, googleToken, setGoogleToken }: { open: boolean, onClose: () => void, user: User | null, connectClickUp: () => void, googleToken: string | null, setGoogleToken: (t: string | null) => void }) {
   const [localNotes, setLocalNotes] = useState<Note[]>([])
   const [remoteNotes, setRemoteNotes] = useState<Note[]>([])
   const [active, setActive] = useState<string | null>(null)
@@ -710,7 +726,9 @@ function NotesPanel({ open, onClose, user, connectClickUp }: { open: boolean, on
               title: cd.name,
               body: body,
               updatedAt: Date.now(),
-              clickupId: cd.id
+              clickupId: cd.id,
+              pinned: false,
+              color: 'default'
             })
             addedCount++
           }
@@ -741,7 +759,7 @@ function NotesPanel({ open, onClose, user, connectClickUp }: { open: boolean, on
   const addNote = async () => {
     if (!user) {
       const id = crypto.randomUUID()
-      const n = { id, title: 'Untitled', body: '', updatedAt: Date.now() }
+      const n = { id, title: 'Untitled Note', body: '', updatedAt: Date.now(), pinned: false, color: 'default' }
       const list = [n, ...localNotes]
       setLocalNotes(list)
       localStorage.setItem('oblivion.notes', JSON.stringify(list))
@@ -750,7 +768,7 @@ function NotesPanel({ open, onClose, user, connectClickUp }: { open: boolean, on
     }
 
     try {
-      const n = { userId: user.uid, title: 'Untitled', body: '', updatedAt: Date.now() }
+      const n = { userId: user.uid, title: 'Untitled Note', body: '', updatedAt: Date.now(), pinned: false, color: 'default' }
       const docRef = await addDoc(collection(db, 'users', user.uid, 'notes'), n)
       setActive(docRef.id)
     } catch (err) {
@@ -790,63 +808,341 @@ function NotesPanel({ open, onClose, user, connectClickUp }: { open: boolean, on
     }
   }
 
+  const exportToGoogleTasks = async (note: Note) => {
+    if (!googleToken) {
+      toast.error('Connect with Google first (via Tasks or Agenda Sync)')
+      return
+    }
+    toast('Syncing checklist note to Google Tasks...', { icon: '🔄' })
+    try {
+      const listsRes = await fetch('https://tasks.googleapis.com/v1/users/@me/lists', {
+        headers: { 'Authorization': `Bearer ${googleToken}` }
+      })
+      const listsData = await listsRes.json()
+      const primaryListId = listsData.items && listsData.items.length > 0 ? listsData.items[0].id : '@default'
+      
+      const payload: any = {
+        title: note.title || 'Untitled Note',
+        notes: note.body || ''
+      }
+      
+      const createRes = await fetch(`https://tasks.googleapis.com/v1/lists/${primaryListId}/tasks`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${googleToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      })
+      
+      if (createRes.ok) {
+        toast.success(`Exported "${note.title}" to Google Tasks!`)
+      } else {
+        throw new Error(await createRes.text())
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to export checklist to Google Tasks')
+    }
+  }
+
   const filtered = notes.filter(n => !q || (n.title + ' ' + n.body).toLowerCase().includes(q.toLowerCase()))
+  
+  // Sort and separate pinned/unpinned
+  const pinnedNotes = filtered.filter(n => n.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
+  const otherNotes = filtered.filter(n => !n.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
+
   const current = notes.find(n => n.id === active)
+  const currentKeeperColor = current ? KEEP_COLORS[current.color || 'default'] || KEEP_COLORS.default : KEEP_COLORS.default
+
+  const [localChecklistMode, setLocalChecklistMode] = useState(false)
+
+  useEffect(() => {
+    if (current) {
+      const isList = current.body.split('\n').some(l => l.startsWith('[ ] ') || l.startsWith('[x] ') || l.startsWith('[X] '));
+      setLocalChecklistMode(isList);
+    } else {
+      setLocalChecklistMode(false);
+    }
+  }, [active, current?.id]);
+
+  const toggleChecklistMode = () => {
+    if (!current) return;
+    const nextMode = !localChecklistMode;
+    setLocalChecklistMode(nextMode);
+    
+    if (nextMode) {
+      const lines = current.body.split('\n');
+      const formattedLines = lines.map(line => {
+        if (line.startsWith('[ ] ') || line.startsWith('[x] ') || line.startsWith('[X] ')) {
+          return line;
+        }
+        return `[ ] ${line}`;
+      });
+      updateNote(current.id, { body: formattedLines.join('\n') });
+    } else {
+      const lines = current.body.split('\n');
+      const cleanedLines = lines.map(line => {
+        if (line.startsWith('[ ] ')) return line.substring(4);
+        if (line.startsWith('[x] ') || line.startsWith('[X] ')) return line.substring(4);
+        return line;
+      });
+      updateNote(current.id, { body: cleanedLines.join('\n') });
+    }
+  };
+
+  interface ChecklistItem {
+    id: string;
+    checked: boolean;
+    text: string;
+  }
+
+  const parseChecklist = (body: string): ChecklistItem[] => {
+    if (!body) return [{ id: '0', checked: false, text: '' }];
+    const lines = body.split('\n');
+    return lines.map((line, idx) => {
+      const isChecked = line.startsWith('[x] ') || line.startsWith('[X] ');
+      const isUnchecked = line.startsWith('[ ] ');
+      return {
+        id: String(idx),
+        checked: isChecked,
+        text: isChecked || isUnchecked ? line.substring(4) : line
+      };
+    });
+  };
+
+  const serializeChecklist = (items: ChecklistItem[]): string => {
+    return items.map(item => `${item.checked ? '[x]' : '[ ]'} ${item.text}`).join('\n');
+  };
+
+  const renderNoteItem = (n: Note) => {
+    const colorInfo = KEEP_COLORS[n.color || 'default'] || KEEP_COLORS.default;
+    return (
+      <div key={n.id} className={`group flex flex-col w-full text-left rounded-xl p-3 border transition-all duration-250 cursor-pointer ${colorInfo.bg} ${colorInfo.border} ${active === n.id ? 'ring-2 ring-white/30 scale-[1.01] shadow-lg' : 'opacity-85 hover:opacity-100 shadow-sm'}`}
+        onClick={() => setActive(n.id)}>
+        <div className="flex items-start justify-between gap-2">
+          <div className={`text-xs font-semibold truncate flex-1 uppercase tracking-wider ${colorInfo.text}`}>{n.title || 'Untitled Note'}</div>
+          <button 
+            title={n.pinned ? "Unpin note" : "Pin note"}
+            onClick={(e) => {
+              e.stopPropagation();
+              updateNote(n.id, { pinned: !n.pinned });
+            }}
+            className="opacity-0 group-hover:opacity-100 text-white/50 hover:text-white transition-opacity p-0.5"
+          >
+            {n.pinned ? <Pin className="h-3 w-3 fill-white text-white" /> : <PinOff className="h-3 w-3" />}
+          </button>
+        </div>
+        <div className="text-[13px] text-white/70 line-clamp-3 mt-1.5 whitespace-pre-wrap leading-relaxed">
+          {n.body || <span className="italic text-white/35">Empty note</span>}
+        </div>
+        <div className="text-[9px] text-white/40 mt-2 font-mono flex items-center justify-between">
+          <span>{new Date(n.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
+          {n.color && n.color !== 'default' && (
+            <span className="text-[8px] uppercase font-bold tracking-widest text-white/30 px-1.5 py-0.5 bg-white/5 rounded-full">{n.color}</span>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <Panel open={open} onClose={onClose} title="Notes" icon={<StickyNote className="h-4 w-4" />}>
-      <div className="grid grid-cols-[260px_1fr] h-full min-h-0">
-        <div className="border-r border-white/10 flex flex-col min-h-0">
-          <div className="p-3 flex items-center gap-2 border-b border-white/5">
+    <Panel open={open} onClose={onClose} title="Google Keep" icon={<StickyNote className="h-4 w-4" />}>
+      <div className="grid grid-cols-[280px_1fr] h-full min-h-0 bg-zinc-950">
+        <div className="border-r border-white/10 flex flex-col min-h-0 bg-black/40">
+          <div className="p-3.5 flex items-center gap-2 border-b border-white/5">
             <div className="relative flex-1">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
-              <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search…"
-                className="pl-8 bg-white/5 border-white/10 text-white placeholder:text-white/40 h-9" />
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
+              <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search notes & tools…"
+                className="pl-8 bg-white/5 border-white/10 text-white placeholder:text-white/40 h-9 text-xs" />
             </div>
             <Button size="icon" onClick={addNote} className="bg-white/10 hover:bg-white/20 h-9 w-9"><Plus className="h-4 w-4" /></Button>
           </div>
-          <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
-            <div className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold">Managed Notes</div>
-            <button 
-              onClick={isClickUpConnected ? syncClickUpDocs : connectClickUp} 
-              disabled={isSyncing}
-              className={`text-[9px] uppercase font-bold tracking-widest flex items-center gap-1.5 transition-all ${isClickUpConnected ? 'text-blue-400 hover:text-blue-300' : 'text-white/40 hover:text-white'}`}
-            >
-              {isSyncing ? (
-                <span className="animate-pulse">...</span>
-              ) : isClickUpConnected ? (
-                <><RotateCcw className="h-3 w-3" /> Sync</>
-              ) : (
-                <><Plus className="h-3 w-3" /> Link</>
-              )}
-            </button>
+          
+          <div className="px-4 py-2 border-b border-white/5 bg-white/[0.015] flex items-center justify-between">
+            <div className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold">Notes List</div>
+            {user ? (
+              <span className="text-[8px] text-emerald-400 font-extrabold tracking-widest bg-emerald-950/45 border border-emerald-500/20 px-1.5 py-0.5 rounded">Cloud Backup</span>
+            ) : (
+              <span className="text-[8px] text-amber-500 font-extrabold tracking-widest bg-amber-950/45 border border-amber-500/20 px-1.5 py-0.5 rounded">Offline</span>
+            )}
           </div>
-          <div className="flex-1 overflow-auto thin-scroll px-2 pb-3 space-y-1">
-            {filtered.length === 0 && <div className="text-white/40 text-sm p-3">No notes. Create one ↑</div>}
-            {filtered.map(n => (
-              <button key={n.id} onClick={() => setActive(n.id)}
-                className={`w-full text-left rounded-lg px-3 py-2 transition-colors ${active === n.id ? 'bg-white/10' : 'hover:bg-white/5'}`}>
-                <div className="text-sm text-white truncate">{n.title || 'Untitled'}</div>
-                <div className="text-xs text-white/40 truncate">{(n.body || '').slice(0, 50) || 'Empty note'}</div>
-              </button>
-            ))}
+
+          <div className="flex-1 overflow-auto thin-scroll p-3 space-y-4">
+            {filtered.length === 0 && (
+              <div className="text-white/45 text-xs text-center p-6 flex flex-col items-center gap-2">
+                <span>No notes found.</span>
+                <span className="text-[10px] text-white/30 italic">Click upper right + to create a Keep Note</span>
+              </div>
+            )}
+
+            {pinnedNotes.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-[8px] uppercase tracking-[0.25em] text-white/30 font-bold px-1 flex items-center gap-1.5">
+                  <Pin className="h-2 w-2 fill-white/30" /> Pinned
+                </div>
+                {pinnedNotes.map(renderNoteItem)}
+              </div>
+            )}
+
+            {otherNotes.length > 0 && (
+              <div className="space-y-2">
+                {pinnedNotes.length > 0 && (
+                  <div className="text-[8px] uppercase tracking-[0.25em] text-white/30 font-bold px-1 pt-2">
+                    Others
+                  </div>
+                )}
+                {otherNotes.map(renderNoteItem)}
+              </div>
+            )}
           </div>
         </div>
-        <div className="flex flex-col min-h-0">
+
+        <div className={`flex flex-col min-h-0 transition-colors duration-300 ${currentKeeperColor.bg}`}>
           {current ? (
             <>
-              <div className="p-3 flex items-center gap-2 border-b border-white/10">
-                <Input value={current.title} onChange={e => updateNote(current.id, { title: e.target.value })}
-                  className="bg-transparent border-0 text-lg font-medium focus-visible:ring-0 px-0 text-white" placeholder="Title" />
-                <Button size="icon" variant="ghost" onClick={() => removeNote(current.id)} className="text-white/60 hover:text-red-300">
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+              <div className="p-4 flex items-center justify-between border-b border-white/5 bg-black/10 gap-3">
+                <input 
+                  value={current.title} 
+                  onChange={e => updateNote(current.id, { title: e.target.value })}
+                  className={`bg-transparent border-0 text-md font-semibold focus:outline-none p-0 flex-1 ${currentKeeperColor.text}`} 
+                  placeholder="Title" 
+                />
+                
+                <div className="flex items-center gap-1.5">
+                  <button 
+                    onClick={toggleChecklistMode}
+                    title={localChecklistMode ? "Switch to Plain Text" : "Switch to Checklist view"}
+                    className={`p-2 rounded-lg transition-colors flex items-center justify-center ${localChecklistMode ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
+                  >
+                    <ListTodo className="h-4 w-4" />
+                  </button>
+
+                  <button 
+                    onClick={() => updateNote(current.id, { pinned: !current.pinned })}
+                    title={current.pinned ? "Unpin note" : "Pin note"}
+                    className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors"
+                  >
+                    {current.pinned ? <Pin className="h-4 w-4 fill-white text-white" /> : <Pin className="h-4 w-4" />}
+                  </button>
+
+                  <button 
+                    onClick={() => exportToGoogleTasks(current)}
+                    title="Export checklist to Google Tasks"
+                    className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider"
+                  >
+                    <ListChecks className="h-4 w-4" />
+                    <span className="hidden sm:inline">Export Tasks</span>
+                  </button>
+
+                  <button 
+                    onClick={() => removeNote(current.id)}
+                    title="Delete Note"
+                    className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-red-400 transition-colors"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
-              <Textarea value={current.body} onChange={e => updateNote(current.id, { body: e.target.value })}
-                placeholder="Start writing…  (# heading, **bold**, *italic*, - lists)"
-                className="flex-1 bg-transparent border-0 resize-none text-white/90 focus-visible:ring-0 p-5 text-[15px] leading-relaxed thin-scroll" />
+
+              {localChecklistMode ? (
+                <div className="flex-1 overflow-auto p-6 space-y-2 thin-scroll">
+                  {parseChecklist(current.body).map((item, idx) => (
+                    <div key={item.id} className="flex items-center gap-3 group/item">
+                      <button
+                        onClick={() => {
+                          const items = parseChecklist(current.body);
+                          items[idx].checked = !items[idx].checked;
+                          updateNote(current.id, { body: serializeChecklist(items) });
+                        }}
+                        className={`h-4.5 w-4.5 rounded border flex items-center justify-center transition-all ${item.checked ? 'bg-white border-white' : 'border-white/30 hover:border-white/60'}`}
+                      >
+                        {item.checked && <Check className="h-3.5 w-3.5 text-black" />}
+                      </button>
+                      <input
+                        value={item.text}
+                        onChange={(e) => {
+                          const items = parseChecklist(current.body);
+                          items[idx].text = e.target.value;
+                          updateNote(current.id, { body: serializeChecklist(items) });
+                        }}
+                        onKeyDown={(e) => {
+                          const items = parseChecklist(current.body);
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            items.splice(idx + 1, 0, { id: String(Date.now()), checked: false, text: '' });
+                            updateNote(current.id, { body: serializeChecklist(items) });
+                          } else if (e.key === 'Backspace' && item.text === '' && items.length > 1) {
+                            e.preventDefault();
+                            const nextItems = items.filter((_, i) => i !== idx);
+                            updateNote(current.id, { body: serializeChecklist(nextItems) });
+                          }
+                        }}
+                        className={`bg-transparent border-0 focus:outline-none flex-1 text-sm ${item.checked ? 'line-through text-white/40' : currentKeeperColor.text}`}
+                        placeholder="List item"
+                      />
+                      <button
+                        onClick={() => {
+                          const items = parseChecklist(current.body);
+                          const nextItems = items.filter((_, i) => i !== idx);
+                          updateNote(current.id, { body: serializeChecklist(nextItems) });
+                        }}
+                        className="opacity-0 group-hover/item:opacity-100 text-white/30 hover:text-white transition-opacity p-1"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  
+                  <button
+                    onClick={() => {
+                      const items = parseChecklist(current.body);
+                      const blankText = items.length === 1 && items[0].text === '' ? false : true;
+                      if (blankText) {
+                        const nextItems = [...items, { id: String(Date.now()), checked: false, text: '' }];
+                        updateNote(current.id, { body: serializeChecklist(nextItems) });
+                      }
+                    }}
+                    className="flex items-center gap-2 text-xs text-white/50 hover:text-white/80 font-medium pt-2 transition-colors"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    <span>Add list item</span>
+                  </button>
+                </div>
+              ) : (
+                <textarea 
+                  value={current.body} 
+                  onChange={e => updateNote(current.id, { body: e.target.value })}
+                  placeholder="Start typing… Note supports checklists and text styling. Color-code using the palette below."
+                  className={`flex-1 bg-transparent border-0 resize-none focus:outline-none p-6 text-[14px] leading-relaxed thin-scroll ${currentKeeperColor.text} placeholder:text-white/30`} 
+                />
+              )}
+
+              <div className="flex items-center justify-between px-6 py-2 bg-black/20 border-t border-white/5">
+                <div className="flex items-center gap-2">
+                  <Palette className="h-3.5 w-3.5 text-white/50" />
+                  <div className="flex gap-1.5">
+                    {Object.entries(KEEP_COLORS).map(([colorKey, colorVal]) => (
+                      <button
+                        key={colorKey}
+                        onClick={() => updateNote(current.id, { color: colorKey })}
+                        title={colorVal.name}
+                        className={`h-4.5 w-4.5 rounded-full border transition-transform ${colorVal.dot} ${current.color === colorKey || (!current.color && colorKey === 'default') ? 'scale-125 border-white ring-2 ring-white/20' : 'hover:scale-110 border-transparent'}`}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <div className="text-[10px] text-white/40 font-mono italic">
+                  Last updated {new Date(current.updatedAt).toLocaleTimeString()}
+                </div>
+              </div>
             </>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-white/40">Select or create a note</div>
+            <div className="flex-1 flex flex-col items-center justify-center text-white/45 gap-2 select-none">
+              <StickyNote className="h-10 w-10 text-white/20 stroke-[1.5]" />
+              <div className="text-xs tracking-wider uppercase font-semibold text-white/30">Google Keep Notes Panel</div>
+              <div className="text-[10px] text-white/20 italic">Select a note or tap + on the left to add a beautifully synced Keep Note</div>
+            </div>
           )}
         </div>
       </div>
@@ -1204,20 +1500,7 @@ function ChecklistPanel({ open, onClose, user, connectClickUp, googleToken, setG
         {activeTab === 'flow' ? (
           <div className="p-5 flex flex-col flex-1 min-h-0">
             <div className="flex items-center justify-between mb-4 px-1">
-              <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Managed List</div>
-              <button 
-                onClick={isClickUpConnected ? syncClickUp : connectClickUp} 
-                disabled={isSyncing}
-                className={`text-[10px] uppercase font-bold tracking-widest flex items-center gap-1.5 transition-all ${isClickUpConnected ? 'text-blue-400 hover:text-blue-300' : 'text-white/40 hover:text-white'}`}
-              >
-                {isSyncing ? (
-                  <span className="animate-pulse">Syncing...</span>
-                ) : isClickUpConnected ? (
-                  <><RotateCcw className={`h-3 w-3 ${isSyncing ? 'animate-spin' : ''}`} /> Sync ClickUp</>
-                ) : (
-                  <><Plus className="h-3 w-3" /> Connect ClickUp</>
-                )}
-              </button>
+              <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 font-bold">Managed Tasks</div>
             </div>
             <div className="flex gap-2">
               <Input value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => e.key === 'Enter' && add()}
@@ -1502,7 +1785,22 @@ function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, sh
 }
 
 /* ----------------------------- Calendar ----------------------------- */
-interface AppEvent { id: string; title: string; when: string; isGoogle?: boolean }
+interface AppEvent { 
+  id: string; 
+  title: string; 
+  when: string; 
+  isGoogle?: boolean; 
+  calendarId?: string; 
+  calendarConfigColor?: string; 
+}
+
+interface GoogleCalendarInfo {
+  id: string;
+  summary: string;
+  backgroundColor?: string;
+  foregroundColor?: string;
+  primary?: boolean;
+}
 
 function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, setGoogleToken }: { open: boolean, onClose: () => void, user: User | null, gEvents: AppEvent[], setGEvents: (e: AppEvent[]) => void, googleToken: string | null, setGoogleToken: (t: string | null) => void }) {
   const [localEvents, setLocalEvents] = useState<AppEvent[]>([])
@@ -1512,6 +1810,24 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
   const [syncing, setSyncing] = useState(false)
   const [view, setView] = useState<'month' | 'list'>('month')
   const [selectedDate, setSelectedDate] = useState(new Date())
+
+  const [googleCalendars, setGoogleCalendars] = useState<GoogleCalendarInfo[]>(() => {
+    try {
+      const stored = localStorage.getItem('oblivion.google_calendars')
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      return []
+    }
+  })
+
+  const [selectedCalendarIds, setSelectedCalendarIds] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem('oblivion.selected_calendar_ids')
+      return stored ? JSON.parse(stored) : []
+    } catch {
+      return []
+    }
+  })
 
   // Load local
   useEffect(() => {
@@ -1530,7 +1846,13 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
     }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/events`))
   }, [user])
 
-  const events = user ? remoteEvents : localEvents
+  useEffect(() => {
+    localStorage.setItem('oblivion.google_calendars', JSON.stringify(googleCalendars))
+  }, [googleCalendars])
+
+  useEffect(() => {
+    localStorage.setItem('oblivion.selected_calendar_ids', JSON.stringify(selectedCalendarIds))
+  }, [selectedCalendarIds])
 
   const syncGoogle = async () => {
     if (!user) return toast.error('Sign in to sync Google Calendar')
@@ -1546,22 +1868,60 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
         setGoogleToken(token)
       }
       
-      toast('Fetching events...', { icon: '📅' })
-      const gRes = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=' + new Date().toISOString(), {
+      toast('Fetching calendar list...', { icon: '📅' })
+      const listRes = await fetch('https://www.googleapis.com/calendar/v3/users/@me/calendarList', {
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      const data = await gRes.json()
+      const listData = await listRes.json()
       
-      if (data.items) {
-        const events: AppEvent[] = data.items.map((item: any) => ({
+      let fetchedCalendars: GoogleCalendarInfo[] = []
+      if (listData.items) {
+        fetchedCalendars = listData.items.map((item: any) => ({
           id: item.id,
-          title: item.summary || 'Google Event',
-          when: item.start?.dateTime || item.start?.date || new Date().toISOString(),
-          isGoogle: true
+          summary: item.summary,
+          backgroundColor: item.backgroundColor || '#3b82f6',
+          foregroundColor: item.foregroundColor || '#ffffff',
+          primary: !!item.primary
         }))
-        setGEvents(events)
-        toast.success(`Synced ${events.length} events`)
+        setGoogleCalendars(fetchedCalendars)
+        if (selectedCalendarIds.length === 0) {
+          setSelectedCalendarIds(fetchedCalendars.map(c => c.id))
+        }
       }
+
+      toast('Fetching events for calendars...', { icon: '📅' })
+      const allEventsList: AppEvent[] = []
+      const targetCalendars = fetchedCalendars.length > 0 ? fetchedCalendars : googleCalendars
+      if (targetCalendars.length === 0) {
+        targetCalendars.push({ id: 'primary', summary: 'Primary Calendar', backgroundColor: '#3b82f6', primary: true })
+      }
+
+      const minTime = new Date().toISOString()
+      await Promise.all(targetCalendars.map(async (cal) => {
+        try {
+          const gRes = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(cal.id)}/events?maxResults=100&timeMin=${minTime}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          })
+          if (!gRes.ok) return
+          const data = await gRes.json()
+          if (data.items) {
+            const mapped = data.items.map((item: any) => ({
+              id: item.id,
+              title: item.summary || 'Google Event',
+              when: item.start?.dateTime || item.start?.date || new Date().toISOString(),
+              isGoogle: true,
+              calendarId: cal.id,
+              calendarConfigColor: cal.backgroundColor
+            }))
+            allEventsList.push(...mapped)
+          }
+        } catch (e) {
+          console.error(`Error fetching calendar events for ${cal.id}:`, e)
+        }
+      }))
+
+      setGEvents(allEventsList)
+      toast.success(`Synced events from ${targetCalendars.length} calendars!`)
     } catch (err) {
       console.error(err)
       toast.error('Sync failed. Check browser permissions.')
@@ -1570,9 +1930,45 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
 
   const add = async () => {
     if (!title.trim() || !when) return
+    let gEventId: string | undefined = undefined;
+
+    if (user && googleToken) {
+      try {
+        toast('Syncing event to Google Calendar...', { icon: '📅' })
+        const startIso = new Date(when).toISOString()
+        const endIso = new Date(new Date(when).getTime() + 60 * 60 * 1000).toISOString() // 1 hour duration
+        const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${googleToken}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            summary: title.trim(),
+            start: { dateTime: startIso },
+            end: { dateTime: endIso }
+          })
+        })
+        if (res.ok) {
+          const data = await res.json()
+          gEventId = data.id
+          toast.success('Event synced to Google Calendar!')
+        } else {
+          console.error('Google Calendar event creation failed', await res.text())
+        }
+      } catch (err) {
+        console.error('Google Calendar API error:', err)
+      }
+    }
+
     if (user) {
       try {
-        const newEv = { userId: user.uid, title: title.trim(), when }
+        const newEv = { 
+          userId: user.uid, 
+          title: title.trim(), 
+          when,
+          ...(gEventId ? { googleEventId: gEventId, isGoogle: true } : {})
+        }
         await addDoc(collection(db, 'users', user.uid, 'events'), newEv)
       } catch (err) {
         handleFirestoreError(err, 'create', `users/${user.uid}/events`)
@@ -1588,6 +1984,19 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
   const remove = async (id: string) => {
     if (user) {
       try {
+        const eventToDel = remoteEvents.find(e => e.id === id)
+        const gId = (eventToDel as any)?.googleEventId
+        if (googleToken && gId) {
+          try {
+            await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${gId}`, {
+              method: 'DELETE',
+              headers: { 'Authorization': `Bearer ${googleToken}` }
+            })
+            toast.success('Removed from Google Calendar')
+          } catch (err) {
+            console.error('Failed to delete google calendar event:', err)
+          }
+        }
         await deleteDoc(doc(db, 'users', user.uid, 'events', id))
       } catch (err) {
         handleFirestoreError(err, 'delete', `users/${user.uid}/events/${id}`)
@@ -1599,24 +2008,70 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
     }
   }
 
+  const events = user ? remoteEvents : localEvents
+
   const monthName = selectedDate.toLocaleString('default', { month: 'long' })
   const year = selectedDate.getFullYear()
   const daysInMonth = new Date(year, selectedDate.getMonth() + 1, 0).getDate()
   const firstDay = new Date(year, selectedDate.getMonth(), 1).getDay()
 
+  const filteredGEvents = useMemo(() => {
+    if (googleCalendars.length === 0) return gEvents
+    return gEvents.filter(e => {
+      if (!e.calendarId) return true
+      return selectedCalendarIds.includes(e.calendarId)
+    })
+  }, [gEvents, googleCalendars, selectedCalendarIds])
+
   const allEvents = useMemo(() => {
-    return [...events, ...gEvents].sort((a, b) => a.when.localeCompare(b.when))
-  }, [events, gEvents])
+    return [...events, ...filteredGEvents].sort((a, b) => a.when.localeCompare(b.when))
+  }, [events, filteredGEvents])
 
   const upcoming = allEvents.filter(e => new Date(e.when).getTime() >= Date.now() - 60000)
 
   return (
     <Panel open={open} onClose={onClose} title="Agenda" icon={<CalendarDays className="h-4 w-4" />} width="max-w-4xl">
-      <div className="grid grid-cols-[320px_1fr] h-full min-h-0">
-        <div className="p-5 border-r border-white/10 flex flex-col min-h-0 bg-white/[0.02]">
+      <div className="grid grid-cols-[320px_1fr] h-full min-h-0 bg-zinc-950">
+        <div className="p-5 border-r border-white/10 flex flex-col min-h-0 bg-white/[0.015]">
+          
+          {/* Google Calendars Filtering Workspace */}
+          {googleCalendars.length > 0 && (
+            <div className="mb-6 bg-white/[0.02] border border-white/5 rounded-xl p-3">
+              <div className="text-[9px] uppercase tracking-[0.2em] text-white/40 mb-3 font-semibold flex items-center justify-between">
+                <span>Google Calendars</span>
+                <button onClick={syncGoogle} className="text-white/60 hover:text-white transition-colors text-[9px] uppercase font-bold tracking-widest bg-white/[0.04] px-1.5 py-0.5 rounded border border-white/5">Sync</button>
+              </div>
+              <div className="space-y-2 max-h-[140px] overflow-y-auto thin-scroll pr-1">
+                {googleCalendars.map(cal => {
+                  const isChecked = selectedCalendarIds.includes(cal.id)
+                  return (
+                    <label key={cal.id} className="flex items-center gap-2.5 cursor-pointer group py-1">
+                      <input 
+                        type="checkbox" 
+                        checked={isChecked} 
+                        onChange={() => {
+                          if (isChecked) {
+                            setSelectedCalendarIds(selectedCalendarIds.filter(id => id !== cal.id))
+                          } else {
+                            setSelectedCalendarIds([...selectedCalendarIds, cal.id])
+                          }
+                        }}
+                        className="accent-white rounded bg-transparent h-3.5 w-3.5 border border-white/20 text-white focus:ring-0 focus:ring-offset-0"
+                      />
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: cal.backgroundColor || '#3b82f6' }} />
+                      <span className="text-[11px] text-white/70 group-hover:text-white transition-colors truncate flex-1">{cal.summary}</span>
+                    </label>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-4 font-bold flex items-center justify-between">
             <span>Add Event</span>
-            <button onClick={syncGoogle} className="hover:text-white transition-colors">Google Sync</button>
+            {!googleCalendars.length && (
+              <button onClick={syncGoogle} className="hover:text-white transition-colors bg-white/5 px-2 py-0.5 rounded text-[9px]">Google Sync</button>
+            )}
           </div>
           <div className="space-y-3">
             <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="What's happening?"
@@ -1631,12 +2086,15 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
           <div className="mt-8 flex-1 overflow-auto thin-scroll">
             <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3 font-bold">Upcoming</div>
             <div className="space-y-1">
-              {upcoming.length === 0 && <div className="text-white/20 text-[11px] py-4 text-center italic">A blank page exists ahead…</div>}
+              {upcoming.length === 0 && <div className="text-white/20 text-[11px] py-4 text-center italic font-medium">A blank page exists ahead…</div>}
               {upcoming.map(e => (
                 <div key={e.id} className="group flex items-start gap-3 p-3 rounded-xl hover:bg-white/5 transition-all">
-                  <div className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${e.isGoogle ? 'bg-blue-400' : 'bg-white/70'} glow-pulse`} />
+                  <div 
+                    className="mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 glow-pulse" 
+                    style={{ backgroundColor: e.isGoogle ? (e.calendarConfigColor || '#3b82f6') : 'rgba(255,255,255,0.7)' }}
+                  />
                   <div className="flex-1 min-w-0">
-                    <div className="text-[13px] text-white/90 truncate font-medium">{e.title}</div>
+                    <div className="text-[13px] text-white/90 truncate font-semibold">{e.title}</div>
                     <div className="text-[10px] text-white/30 font-mono mt-0.5">{new Date(e.when).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {new Date(e.when).toLocaleDateString([], { month: 'short', day: 'numeric' })}</div>
                   </div>
                   {!e.isGoogle && (
@@ -1650,7 +2108,7 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
           </div>
         </div>
 
-        <div className="flex flex-col min-h-0">
+        <div className="flex flex-col min-h-0 bg-black/30">
           <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <span className="text-lg font-bold text-white tracking-tight">{monthName} <span className="text-white/30">{year}</span></span>
@@ -1666,34 +2124,105 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
           </div>
 
           <div className="flex-1 overflow-auto p-5 thin-scroll">
-            <div className="grid grid-cols-7 gap-px bg-white/5 border border-white/5 rounded-xl overflow-hidden shadow-2xl">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
-                <div key={d} className="bg-white/[0.02] py-2 text-center text-[10px] font-bold uppercase tracking-widest text-white/30 border-b border-white/5">{d}</div>
-              ))}
-              {Array.from({ length: 42 }).map((_, i) => {
-                const day = i - firstDay + 1
-                const isCurrentMonth = day > 0 && day <= daysInMonth
-                const isToday = isCurrentMonth && day === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth() && year === new Date().getFullYear()
-                const dateStr = isCurrentMonth ? `${year}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null
-                const dayEvents = dateStr ? allEvents.filter(e => e.when.startsWith(dateStr)) : []
+            {view === 'month' ? (
+              <div className="grid grid-cols-7 gap-px bg-white/5 border border-white/5 rounded-xl overflow-hidden shadow-2xl">
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => (
+                  <div key={d} className="bg-white/[0.02] py-2 text-center text-[10px] font-bold uppercase tracking-widest text-white/30 border-b border-white/5">{d}</div>
+                ))}
+                {Array.from({ length: 42 }).map((_, i) => {
+                  const day = i - firstDay + 1
+                  const isCurrentMonth = day > 0 && day <= daysInMonth
+                  const isToday = isCurrentMonth && day === new Date().getDate() && selectedDate.getMonth() === new Date().getMonth() && year === new Date().getFullYear()
+                  const dateStr = isCurrentMonth ? `${year}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` : null
+                  const dayEvents = dateStr ? allEvents.filter(e => e.when.startsWith(dateStr)) : []
 
-                return (
-                  <div key={i} className={`min-h-[90px] p-2 bg-black/20 relative group transition-colors ${isCurrentMonth ? 'hover:bg-white/[0.04]' : 'opacity-20 pointer-events-none'}`}>
-                    <span className={`text-[11px] font-mono ${isToday ? 'h-6 w-6 bg-white text-black rounded-full flex items-center justify-center font-bold' : 'text-white/40'}`}>
-                      {isCurrentMonth ? day : ''}
-                    </span>
-                    <div className="mt-2 space-y-1">
-                      {dayEvents.slice(0, 3).map(e => (
-                        <div key={e.id} className={`text-[9px] px-1.5 py-0.5 rounded border truncate ${e.isGoogle ? 'bg-blue-500/10 border-blue-500/20 text-blue-300' : 'bg-white/5 border-white/10 text-white/70'}`}>
-                          {e.title}
-                        </div>
-                      ))}
-                      {dayEvents.length > 3 && <div className="text-[8px] text-white/20 pl-1">+{dayEvents.length - 3} more</div>}
+                  return (
+                    <div key={i} className={`min-h-[90px] p-2 bg-black/20 relative group transition-colors ${isCurrentMonth ? 'hover:bg-white/[0.04]' : 'opacity-20 pointer-events-none'}`}>
+                      <span className={`text-[11px] font-mono ${isToday ? 'h-6 w-6 bg-white text-black rounded-full flex items-center justify-center font-bold' : 'text-white/40'}`}>
+                        {isCurrentMonth ? day : ''}
+                      </span>
+                      <div className="mt-2 space-y-1">
+                        {dayEvents.slice(0, 3).map(e => (
+                          e.isGoogle ? (
+                            <div 
+                              key={e.id} 
+                              className="text-[9px] px-1.5 py-0.5 rounded border truncate font-medium"
+                              style={{ 
+                                backgroundColor: `${e.calendarConfigColor || '#3b82f6'}1a`,
+                                borderColor: `${e.calendarConfigColor || '#3b82f6'}4d`,
+                                color: e.calendarConfigColor || '#93c5fd' 
+                              }}
+                            >
+                              {e.title}
+                            </div>
+                          ) : (
+                            <div key={e.id} className="text-[9px] px-1.5 py-0.5 rounded border border-white/10 bg-white/5 text-white/70 truncate animate-fade-in font-medium">
+                              {e.title}
+                            </div>
+                          )
+                        ))}
+                        {dayEvents.length > 3 && <div className="text-[8px] text-white/20 pl-1">+{dayEvents.length - 3} more</div>}
+                      </div>
                     </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="space-y-4 animate-fade-in pr-1">
+                {allEvents.filter(e => {
+                  const dateVal = new Date(e.when)
+                  return dateVal.getFullYear() === year && dateVal.getMonth() === selectedDate.getMonth()
+                }).length === 0 ? (
+                  <div className="text-white/30 text-xs text-center py-16 italic border border-white/5 rounded-2xl bg-white/[0.01]">
+                    No items scheduled for {monthName} {year}
                   </div>
-                )
-              })}
-            </div>
+                ) : (
+                  <div className="relative border-l border-white/10 pl-5 ml-2 space-y-4">
+                    {allEvents.filter(e => {
+                      const dateVal = new Date(e.when)
+                      return dateVal.getFullYear() === year && dateVal.getMonth() === selectedDate.getMonth()
+                    }).map((e, index) => {
+                      const dateObj = new Date(e.when)
+                      const timeStr = dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                      const dateStr = dateObj.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+                      return (
+                        <div key={e.id || index} className="relative group flex items-start justify-between gap-4 p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-all">
+                          <div className="absolute -left-[26px] top-[22px] h-3 w-3 rounded-full border-2 border-zinc-950 flex items-center justify-center bg-zinc-900">
+                            <span 
+                              className="h-1.5 w-1.5 rounded-full" 
+                              style={{ backgroundColor: e.isGoogle ? (e.calendarConfigColor || '#3b82f6') : 'rgba(255,255,255,0.7)' }}
+                            />
+                          </div>
+                          
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[14px] text-white font-semibold truncate tracking-wide">{e.title}</div>
+                            <div className="flex items-center gap-3 text-[10px] text-white/40 mt-1.5 font-mono">
+                              <span className="text-white/60">{dateStr}</span>
+                              <span>·</span>
+                              <span>{timeStr}</span>
+                              {e.isGoogle && (
+                                <>
+                                  <span>·</span>
+                                  <span className="px-1.5 py-0.5 rounded-full text-[8px] font-bold uppercase tracking-widest text-[#93c5fd]" style={{ backgroundColor: `${e.calendarConfigColor || '#3b82f6'}20`, color: e.calendarConfigColor || '#93c5fd' }}>
+                                    Google
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {!e.isGoogle && (
+                            <button onClick={() => remove(e.id)} className="opacity-0 group-hover:opacity-100 text-white/40 hover:text-red-400 transition-all p-1.5 bg-white/5 rounded-lg border border-white/5">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1858,12 +2387,9 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
               <div className="text-[10px] text-white/40 italic px-1">Settings, notes, and tasks are now synced across devices.</div>
             </div>
           )}
-          <div className="mt-4 pt-4 border-t border-white/10 grid grid-cols-2 gap-3">
-             <Button variant="outline" onClick={connectSpotify} className="border-white/10 text-white/80 hover:bg-white/5 h-10 text-[10px] uppercase tracking-wider font-bold">
-               <Music2 className="h-3.5 w-3.5 mr-2" /> Spotify
-             </Button>
-             <Button variant="outline" onClick={connectClickUp} className="border-white/10 text-white/80 hover:bg-white/5 h-10 text-[10px] uppercase tracking-wider font-bold">
-               <span className="h-3.5 w-3.5 mr-2 flex items-center justify-center bg-blue-500 rounded-sm text-[8px] text-white">C</span> ClickUp
+          <div className="mt-4 pt-4 border-t border-white/10 gap-3 flex">
+             <Button variant="outline" onClick={connectSpotify} className="w-full border-white/10 text-white/80 hover:bg-white/5 h-10 text-[10px] uppercase tracking-wider font-bold">
+                <Music2 className="h-3.5 w-3.5 mr-2" /> Spotify
              </Button>
           </div>
           {redirectUris && (
@@ -1873,9 +2399,6 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
                 <div className="text-[9px] text-white/60">Add these to your provider redirect URIs:</div>
                 <div className="p-1.5 bg-black/40 rounded border border-white/5 font-mono text-[9px] break-all select-all text-[#1DB954]">
                   {redirectUris.spotify}
-                </div>
-                <div className="p-1.5 bg-black/40 rounded border border-white/5 font-mono text-[9px] break-all select-all text-blue-400">
-                  {redirectUris.clickup}
                 </div>
               </div>
             </div>
@@ -1921,7 +2444,7 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
 /* ----------------------------- Dock ----------------------------- */
 const DOCK_ITEMS = [
   { id: 'home', icon: Home, label: 'Home' },
-  { id: 'notes', icon: StickyNote, label: 'Notes' },
+  { id: 'notes', icon: StickyNote, label: 'Google Keep' },
   { id: 'tasks', icon: ListChecks, label: 'Checklist' },
   { id: 'stats', icon: BarChart2, label: 'Stats' },
   { id: 'pomo', icon: Timer, label: 'Pomodoro' },
@@ -2074,6 +2597,11 @@ const App = () => {
   const login = async () => {
     try {
       const res = await signInWithPopup(auth, googleProvider)
+      const cred = GoogleAuthProvider.credentialFromResult(res)
+      const token = cred?.accessToken ?? null
+      if (token) {
+        setGoogleToken(token)
+      }
       if (res.user && !settings.name) setSettings(s => ({ ...s, name: res.user.displayName || '' }))
     } catch (err) {
       toast.error('Sign in failed')
@@ -2282,7 +2810,7 @@ const App = () => {
         pomoTotal={pomoTotal}
         pomoMode={pomoMode}
       />
-      <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} connectClickUp={connectClickUp} />
+      <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} connectClickUp={connectClickUp} googleToken={googleToken} setGoogleToken={setGoogleToken} />
       <ChecklistPanel open={open === 'tasks'} onClose={() => setOpen(null)} user={user} connectClickUp={connectClickUp} googleToken={googleToken} setGoogleToken={setGoogleToken} />
       <PomodoroPanel 
         open={open === 'pomo'} 
@@ -2308,6 +2836,7 @@ const App = () => {
       <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} connectClickUp={connectClickUp} />
 
       <PersistentMusicPlayer playlistId={playlistId} visible={open === 'music'} />
+      <AIAgentBlob />
       <Dock onAction={dispatch} isFullscreen={isFullscreen} />
     </div>
   )
