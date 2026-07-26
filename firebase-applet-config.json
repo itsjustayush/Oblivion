@@ -4,6 +4,7 @@
   "apiKey": "AIzaSyAPnoSr-ysfi3oAZJclsBYnP076bLd-4es",
   "authDomain": "comet-db-c8090.firebaseapp.com",
   "storageBucket": "comet-db-c8090.firebasestorage.app",
+  "firestoreDatabaseId": "ai-studio-0d0d80dd-7827-43ff-af09-0e4f6ee44d44",
   "messagingSenderId": "395792982867",
   "measurementId": ""
 }

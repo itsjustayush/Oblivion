@@ -48,7 +48,8 @@ import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
+const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId || 'ai-studio-0d0d80dd-7827-43ff-af09-0e4f6ee44d44';
+const db = getFirestore(app, firestoreDbId);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/calendar');
@@ -955,7 +956,8 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
     }
 
     try {
-      await updateDoc(doc(db, 'users', user.uid, 'notes', id), { ...patch, updatedAt: Date.now() })
+      const { id: _id, userId: _userId, ...cleanPatch } = patch as any
+      await updateDoc(doc(db, 'users', user.uid, 'notes', id), { ...cleanPatch, updatedAt: Date.now() })
     } catch (err) {
       handleFirestoreError(err, 'update', `users/${user.uid}/notes/${id}`)
     }
