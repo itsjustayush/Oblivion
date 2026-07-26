@@ -2,111 +2,17 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Global safety net: default-deny catch-all
-    match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Common Global Helpers
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    // Users Match Block (Settings & Profiles)
     match /users/{userId} {
-      function isValidUser(data) {
-        return (!('name' in data) || (data.name is string && data.name.size() <= 100))
-          && (!('showGreeting' in data) || data.showGreeting is bool)
-          && (!('bgId' in data) || (data.bgId is string && data.bgId.size() <= 100))
-          && (!('rain' in data) || data.rain is int || data.rain is float)
-          && (!('blur' in data) || data.blur is int || data.blur is float)
-          && (!('dim' in data) || data.dim is int || data.dim is float)
-          && (!('grain' in data) || data.grain is bool)
-          && (!('clockSize' in data) || data.clockSize is int || data.clockSize is float);
-      }
-
-      allow get: if isOwner(userId);
-      allow create, update: if isOwner(userId) && isValidUser(incoming());
-
-      // Notes Match Block
-      match /notes/{noteId} {
-        function isValidNote(data) {
-          return (!('userId' in data) || data.userId == userId)
-            && (!('title' in data) || (data.title is string && data.title.size() <= 200))
-            && (!('body' in data) || (data.body == null || (data.body is string && data.body.size() <= 50000)))
-            && (!('pinned' in data) || data.pinned is bool)
-            && (!('color' in data) || data.color is string)
-            && (!('updatedAt' in data) || data.updatedAt is int || data.updatedAt is float);
-        }
-
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidNote(incoming());
-        allow delete: if isOwner(userId);
-      }
-
-      // Tasks Match Block
-      match /tasks/{taskId} {
-        function isValidTask(data) {
-          return (!('userId' in data) || data.userId == userId)
-            && (!('text' in data) || (data.text is string && data.text.size() <= 500))
-            && (!('done' in data) || data.done is bool)
-            && (!('createdAt' in data) || data.createdAt is int || data.createdAt is float)
-            && (!('clickupId' in data) || data.clickupId is string);
-        }
-
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidTask(incoming());
-        allow delete: if isOwner(userId);
-      }
-
-      // Events Match Block
-      match /events/{eventId} {
-        function isValidEvent(data) {
-          return (!('userId' in data) || data.userId == userId)
-            && (!('title' in data) || (data.title is string && data.title.size() <= 200))
-            && (!('when' in data) || (data.when is string && data.when.size() <= 100))
-            && (!('googleEventId' in data) || data.googleEventId is string)
-            && (!('isGoogle' in data) || data.isGoogle is bool);
-        }
-
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId) && isValidEvent(incoming());
-        allow delete: if isOwner(userId);
-      }
-
-      // Sessions Match Block
-      match /sessions/{sessionId} {
-        function isValidSession(data) {
-          return (!('userId' in data) || data.userId == userId)
-            && (!('duration' in data) || (data.duration is int || data.duration is float))
-            && (!('timestamp' in data) || (data.timestamp is int || data.timestamp is float))
-            && (!('day' in data) || data.day is string);
-        }
-
-        allow list, get: if isOwner(userId);
-        allow create: if isOwner(userId) && isValidSession(incoming());
-        allow update, delete: if false; // Focus sessions are immutable
-      }
-
-      // Integrations Match Block
-      match /integrations/{integrationId} {
-        allow list, get: if isOwner(userId);
-        allow create, update: if isOwner(userId);
-        allow delete: if isOwner(userId);
+      allow read, write: if request.auth != null;
+      
+      match /{allPaths=**} {
+        allow read, write: if request.auth != null;
       }
     }
-    
-    // Global support functions
-    function incoming() {
-      return request.resource.data;
-    }
 
-    function existing() {
-      return resource.data;
+    match /{document=**} {
+      allow read, write: if request.auth != null;
     }
   }
 }
+

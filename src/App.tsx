@@ -56,7 +56,56 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/calendar');
 googleProvider.addScope('https://www.googleapis.com/auth/tasks');
 
-import { AIAgentBlob } from './components/AIAgentBlob';
+/* ----------------------------- Spotlight Reveal ----------------------------- */
+const BG_IMAGE_1 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_195923_b0ba8ace-1d1d-4f2c-9a28-1ab84b330680.png&w=1280&q=85";
+const BG_IMAGE_2 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_201152_bba90a12-bf12-459f-91f0-51f237dbaf3b.png&w=1280&q=85";
+
+function RevealLayer({ image }: { image: string }) {
+  const layerRef = React.useRef<HTMLDivElement | null>(null)
+  const mouseRef = React.useRef({ x: -999, y: -999 })
+  const smoothRef = React.useRef({ x: -999, y: -999 })
+  const rafRef = React.useRef<number | null>(null)
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY }
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+
+    const loop = () => {
+      if (mouseRef.current.x >= 0 && layerRef.current) {
+        if (smoothRef.current.x < 0) {
+          smoothRef.current = { ...mouseRef.current }
+        } else {
+          smoothRef.current.x += (mouseRef.current.x - smoothRef.current.x) * 0.1
+          smoothRef.current.y += (mouseRef.current.y - smoothRef.current.y) * 0.1
+        }
+        const x = smoothRef.current.x
+        const y = smoothRef.current.y
+        const maskCss = `radial-gradient(circle 260px at ${x}px ${y}px, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 1) 40%, rgba(255, 255, 255, 0.75) 60%, rgba(255, 255, 255, 0.4) 75%, rgba(255, 255, 255, 0.12) 88%, rgba(255, 255, 255, 0) 100%)`
+        layerRef.current.style.maskImage = maskCss
+        layerRef.current.style.webkitMaskImage = maskCss
+      }
+      rafRef.current = requestAnimationFrame(loop)
+    }
+    rafRef.current = requestAnimationFrame(loop)
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove)
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
+
+  return (
+    <div
+      ref={layerRef}
+      className="absolute inset-0 bg-center bg-cover bg-no-repeat z-30 pointer-events-none"
+      style={{
+        backgroundImage: `url(${image})`,
+      }}
+    />
+  )
+}
 
 /* ----------------------------- Firestore Error Handler ----------------------------- */
 function handleFirestoreError(error: unknown, op: string, path: string) {
@@ -70,8 +119,6 @@ function handleFirestoreError(error: unknown, op: string, path: string) {
     }
   }
   console.error('Firestore Error:', JSON.stringify(errInfo))
-  toast.error(`Cloud Sync Error: ${op}`)
-  throw new Error(JSON.stringify(errInfo))
 }
 
 /* ----------------------------- Persistence Hook ----------------------------- */
@@ -91,22 +138,34 @@ const useLocal = <T,>(key: string, initial: T): [T, React.Dispatch<React.SetStat
 
 const useSynced = <T,>(key: string, initial: T, user: User | null): [T, React.Dispatch<React.SetStateAction<T>>] => {
   const [val, setVal] = useState<T>(initial)
-  
+  const lastSyncedRef = React.useRef<string>('')
+  const isRemoteRef = React.useRef<boolean>(false)
+
   // Load from local storage initially
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(key)
-      if (raw !== null) setVal(JSON.parse(raw))
+      if (raw !== null) {
+        setVal(JSON.parse(raw))
+        lastSyncedRef.current = raw
+      }
     } catch {}
   }, [key])
 
   // If user is logged in, listen to Firestore
   useEffect(() => {
     if (!user) return
-    const collName = key.split('.')[1] || 'settings'
     if (key === 'oblivion.settings') {
       return onSnapshot(doc(db, 'users', user.uid), (snap) => {
-        if (snap.exists()) setVal(snap.data() as T)
+        if (snap.exists()) {
+          const remoteData = snap.data() as T
+          const str = JSON.stringify(remoteData)
+          if (str !== lastSyncedRef.current) {
+            isRemoteRef.current = true
+            lastSyncedRef.current = str
+            setVal(remoteData)
+          }
+        }
       }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}`))
     }
   }, [user, key])
@@ -114,9 +173,13 @@ const useSynced = <T,>(key: string, initial: T, user: User | null): [T, React.Di
   // Save to local storage and Firestore
   useEffect(() => {
     try {
-      window.localStorage.setItem(key, JSON.stringify(val))
-      if (user) {
-        if (key === 'oblivion.settings') {
+      const str = JSON.stringify(val)
+      window.localStorage.setItem(key, str)
+      if (user && key === 'oblivion.settings') {
+        if (isRemoteRef.current) {
+          isRemoteRef.current = false
+        } else if (str !== lastSyncedRef.current) {
+          lastSyncedRef.current = str
           setDoc(doc(db, 'users', user.uid), val as any, { merge: true })
         }
       }
@@ -263,7 +326,7 @@ function WeatherWidget() {
   }, [fetchWeather]);
 
   if (!data) return (
-    <div className="absolute top-8 left-8 z-20 glass px-4 py-2 rounded-2xl animate-pulse cursor-wait">
+    <div className="absolute top-20 sm:top-24 left-6 sm:left-8 z-50 glass px-4 py-2 rounded-2xl animate-pulse cursor-wait">
       <div className="w-24 h-8 bg-white/5 rounded-md" />
     </div>
   );
@@ -274,7 +337,7 @@ function WeatherWidget() {
         initial={{ opacity: 0, x: -10 }} 
         animate={{ opacity: 1, x: 0 }}
         onClick={() => setShowDetail(true)}
-        className="absolute top-8 left-8 flex items-center gap-3.5 z-20 glass px-4 py-2.5 rounded-2xl group hover:bg-white/10 transition-all duration-500 border border-white/5 hover:border-white/10 cursor-pointer active:scale-95"
+        className="absolute top-20 sm:top-24 left-6 sm:left-8 flex items-center gap-3.5 z-50 glass px-4 py-2.5 rounded-2xl group hover:bg-white/10 transition-all duration-500 border border-white/5 hover:border-white/10 cursor-pointer active:scale-95"
       >
         <div className="text-2xl drop-shadow-lg group-hover:scale-110 transition-transform duration-500">
           {getWeatherIcon(data.code)}
@@ -378,14 +441,14 @@ function Clock({ size = 1 }: { size: number }) {
     <motion.div
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 1.2, ease: [0.22, 1, 0.36, 1] }}
-      className="flex flex-col items-center select-none -translate-y-12"
+      className="flex flex-col items-center select-none"
     >
-      <div className="font-bold leading-none tracking-tighter text-white text-glow flex items-end"
-        style={{ fontSize: `clamp(100px, ${16 * size}vw, ${240 * size}px)` }}>
+      <div className="font-bold leading-none tracking-tighter text-white text-glow flex items-end drop-shadow-[0_10px_35px_rgba(232,112,42,0.3)]"
+        style={{ fontSize: `clamp(90px, ${15 * size}vw, ${220 * size}px)` }}>
         <span>{hm}</span>
-        <span className="ml-2 opacity-30 font-medium" style={{ fontSize: '0.25em', marginBottom: '0.15em' }}>{ampm.toLowerCase()}</span>
+        <span className="ml-2.5 opacity-40 font-medium text-white/50" style={{ fontSize: '0.25em', marginBottom: '0.15em' }}>{ampm.toLowerCase()}</span>
       </div>
-      <div className="mt-2 text-white/40 text-glow-soft text-sm uppercase tracking-[0.4em] font-medium">{dateStr}</div>
+      <div className="mt-2 text-white/50 text-glow-soft text-sm uppercase tracking-[0.4em] font-medium">{dateStr}</div>
     </motion.div>
   )
 }
@@ -407,27 +470,127 @@ function Greeting({ name }: { name: string }) {
   )
 }
 
+/* ----------------------------- Custom Cursor ----------------------------- */
+function CustomCursor() {
+  const [pos, setPos] = useState({ x: -100, y: -100 })
+  const [trail, setTrail] = useState({ x: -100, y: -100 })
+  const [isHovered, setIsHovered] = useState(false)
+  const [isClicked, setIsClicked] = useState(false)
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    document.documentElement.classList.add('custom-cursor-active')
+
+    const handleMouseMove = (e: MouseEvent) => {
+      setPos({ x: e.clientX, y: e.clientY })
+      if (!visible) setVisible(true)
+
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === 'BUTTON' ||
+          target.tagName === 'A' ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.closest('button') ||
+          target.closest('a') ||
+          target.getAttribute('role') === 'button' ||
+          target.classList.contains('cursor-pointer'))
+      ) {
+        setIsHovered(true)
+      } else {
+        setIsHovered(false)
+      }
+    }
+
+    const handleMouseDown = () => setIsClicked(true)
+    const handleMouseUp = () => setIsClicked(false)
+    const handleMouseLeave = () => setVisible(false)
+    const handleMouseEnter = () => setVisible(true)
+
+    window.addEventListener('mousemove', handleMouseMove)
+    window.addEventListener('mousedown', handleMouseDown)
+    window.addEventListener('mouseup', handleMouseUp)
+    document.addEventListener('mouseleave', handleMouseLeave)
+    document.addEventListener('mouseenter', handleMouseEnter)
+
+    return () => {
+      document.documentElement.classList.remove('custom-cursor-active')
+      window.removeEventListener('mousemove', handleMouseMove)
+      window.removeEventListener('mousedown', handleMouseDown)
+      window.removeEventListener('mouseup', handleMouseUp)
+      document.removeEventListener('mouseleave', handleMouseLeave)
+      document.removeEventListener('mouseenter', handleMouseEnter)
+    }
+  }, [visible])
+
+  useEffect(() => {
+    let animId: number
+    const updateTrail = () => {
+      setTrail(prev => {
+        const dx = pos.x - prev.x
+        const dy = pos.y - prev.y
+        if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) return prev
+        return {
+          x: prev.x + dx * 0.35,
+          y: prev.y + dy * 0.35
+        }
+      })
+      animId = requestAnimationFrame(updateTrail)
+    }
+    animId = requestAnimationFrame(updateTrail)
+    return () => cancelAnimationFrame(animId)
+  }, [pos])
+
+  if (!visible) return null
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[99999] overflow-hidden">
+      <div
+        className={`fixed top-0 left-0 rounded-full border transition-transform duration-75 ease-out ${
+          isHovered
+            ? 'w-10 h-10 border-[#e8702a] bg-[#e8702a]/15 scale-125'
+            : isClicked
+            ? 'w-7 h-7 border-white/80 bg-white/20 scale-90'
+            : 'w-8 h-8 border-white/40 bg-white/5'
+        }`}
+        style={{
+          transform: `translate3d(${trail.x - (isHovered ? 20 : isClicked ? 14 : 16)}px, ${trail.y - (isHovered ? 20 : isClicked ? 14 : 16)}px, 0)`
+        }}
+      />
+      <div
+        className={`fixed top-0 left-0 rounded-full transition-all duration-75 ${
+          isHovered ? 'w-2.5 h-2.5 bg-[#e8702a] shadow-md shadow-[#e8702a]/50' : 'w-2 h-2 bg-white'
+        }`}
+        style={{
+          transform: `translate3d(${pos.x - (isHovered ? 5 : 4)}px, ${pos.y - (isHovered ? 5 : 4)}px, 0)`
+        }}
+      />
+    </div>
+  )
+}
+
 /* ----------------------------- Panel ----------------------------- */
 function Panel({ open, onClose, title, icon, children, width = 'max-w-3xl' }: { open: boolean, onClose: () => void, title: string, icon: React.ReactNode, children: React.ReactNode, width?: string }) {
   return (
     <AnimatePresence>
       {open && (
-        <motion.div className="fixed inset-0 z-40 flex items-center justify-center p-4"
+        <motion.div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-          <motion.div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose}
+          <motion.div className="absolute inset-0 bg-black/75 backdrop-blur-md" onClick={onClose}
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
           <motion.div
-            initial={{ opacity: 0, y: 24, scale: 0.98 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.98 }}
-            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            className={`relative glass-strong rounded-2xl w-full ${width} h-[75vh] max-h-[680px] overflow-hidden flex flex-col`}
+            initial={{ opacity: 0, y: 20, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.96 }}
+            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            className={`relative glass-strong rounded-2xl w-full ${width} h-[82vh] max-h-[720px] overflow-hidden flex flex-col shadow-2xl border border-white/20 z-10`}
           >
-            <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10">
-              <div className="flex items-center gap-2 text-white/85">
-                <span className="text-white/60">{icon}</span>
-                <span className="text-sm font-medium tracking-wide">{title}</span>
+            <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-black/50">
+              <div className="flex items-center gap-2.5 text-white">
+                <span className="text-[#e8702a]">{icon}</span>
+                <span className="text-sm font-semibold tracking-wide">{title}</span>
               </div>
-              <button onClick={onClose} className="text-white/50 hover:text-white transition-colors">
-                <X className="h-4 w-4" />
+              <button onClick={onClose} className="p-1.5 rounded-full text-white/50 hover:text-white hover:bg-white/10 transition-colors">
+                <X className="h-4.5 w-4.5" />
               </button>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto thin-scroll">{children}</div>
@@ -476,12 +639,12 @@ function StatsPanel({ open, onClose, user, pomoCycles, setPomoCycles, pomoRunnin
   useEffect(() => {
     if (!user) return
     const qTasks = query(collection(db, 'users', user.uid, 'tasks'), where('done', '==', true))
-    const unsubTasks = onSnapshot(qTasks, (snap) => setTasksDone(snap.size))
+    const unsubTasks = onSnapshot(qTasks, (snap) => setTasksDone(snap.size), (err) => handleFirestoreError(err, 'get', `users/${user.uid}/tasks`))
     
     const qSessions = query(collection(db, 'users', user.uid, 'sessions'))
     const unsubSessions = onSnapshot(qSessions, (snap) => {
       setSessions(snap.docs.map(d => d.data() as any))
-    })
+    }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/sessions`))
 
     return () => { unsubTasks(); unsubSessions() }
   }, [user])
@@ -668,13 +831,11 @@ const KEEP_COLORS: { [key: string]: { name: string, bg: string, text: string, do
   pink: { name: 'Pink', bg: 'bg-rose-950/20 border-rose-800/30 hover:bg-rose-950/30', text: 'text-rose-200', dot: 'bg-rose-500/80 border-rose-400', border: 'border-rose-500/25' },
 }
 
-function NotesPanel({ open, onClose, user, connectClickUp, googleToken, setGoogleToken }: { open: boolean, onClose: () => void, user: User | null, connectClickUp: () => void, googleToken: string | null, setGoogleToken: (t: string | null) => void }) {
+function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open: boolean, onClose: () => void, user: User | null, googleToken: string | null, setGoogleToken: (t: string | null) => void }) {
   const [localNotes, setLocalNotes] = useState<Note[]>([])
   const [remoteNotes, setRemoteNotes] = useState<Note[]>([])
   const [active, setActive] = useState<string | null>(null)
   const [q, setQ] = useState('')
-  const [isClickUpConnected, setIsClickUpConnected] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
 
   useEffect(() => {
     try {
@@ -690,60 +851,8 @@ function NotesPanel({ open, onClose, user, connectClickUp, googleToken, setGoogl
       setRemoteNotes(snap.docs.map(d => ({ id: d.id, ...d.data() } as Note)))
     }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/notes`))
 
-    const unsubClickup = onSnapshot(doc(db, 'users', user.uid, 'integrations', 'clickup'), (snap) => {
-      setIsClickUpConnected(snap.exists())
-    })
-
-    return () => { unsubNotes(); unsubClickup() }
+    return () => { unsubNotes() }
   }, [user])
-
-  const syncClickUpDocs = async () => {
-    if (!user) return toast.error('Sign in to sync with ClickUp')
-    setIsSyncing(true)
-    toast('Fetching ClickUp docs...', { icon: '🔄' })
-    try {
-      const snap = await getDoc(doc(db, 'users', user.uid, 'integrations', 'clickup'))
-      if (!snap.exists()) return toast.error('ClickUp not connected')
-      const { access_token } = snap.data()
-
-      const res = await fetch('/api/clickup/docs', {
-        headers: { 'Authorization': access_token }
-      })
-      const data = await res.json()
-      
-      if (data.error) throw new Error(data.error)
-
-      const docs = data.docs || []
-      if (docs.length > 0) {
-        let addedCount = 0
-        const existingTitles = new Set(remoteNotes.map(n => n.title.toLowerCase()))
-
-        for (const cd of docs) {
-          if (!existingTitles.has(cd.name.toLowerCase())) {
-            const body = cd.description || ''
-            await addDoc(collection(db, 'users', user.uid, 'notes'), {
-              userId: user.uid,
-              title: cd.name,
-              body: body,
-              updatedAt: Date.now(),
-              clickupId: cd.id,
-              pinned: false,
-              color: 'default'
-            })
-            addedCount++
-          }
-        }
-        toast.success(`Synced ${addedCount} new notes from ClickUp`)
-      } else {
-        toast('No new ClickUp docs found')
-      }
-    } catch (err: any) {
-      console.error(err)
-      toast.error(`Sync failed: ${err.message || 'ClickUp API error'}`)
-    } finally {
-      setIsSyncing(false)
-    }
-  }
 
   const notes = user ? remoteNotes : localNotes
   const setNotes = (updater: (prev: Note[]) => Note[]) => {
@@ -1167,14 +1276,12 @@ function TaskRow({ t, onToggle, onRemove }: { t: Task, onToggle: (id: string) =>
     </motion.div>
   )
 }
-function ChecklistPanel({ open, onClose, user, connectClickUp, googleToken, setGoogleToken }: { open: boolean, onClose: () => void, user: User | null, connectClickUp: () => void, googleToken: string | null, setGoogleToken: (t: string | null) => void }) {
+function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { open: boolean, onClose: () => void, user: User | null, googleToken: string | null, setGoogleToken: (t: string | null) => void }) {
   const [localTasks, setLocalTasks] = useState<Task[]>([])
   const [remoteTasks, setRemoteTasks] = useState<Task[]>([])
   const [input, setInput] = useState('')
-  const [isClickUpConnected, setIsClickUpConnected] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
 
-  // Tabs: flow = offline/Firestore/ClickUp, google = Google Tasks API
+  // Tabs: flow = offline/Firestore, google = Google Tasks API
   const [activeTab, setActiveTab] = useState<'flow' | 'google'>('flow')
 
   // Google Tasks specific states
@@ -1199,11 +1306,7 @@ function ChecklistPanel({ open, onClose, user, connectClickUp, googleToken, setG
       setRemoteTasks(snap.docs.map(d => ({ id: d.id, ...d.data() } as Task)))
     }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/tasks`))
 
-    const unsubClickup = onSnapshot(doc(db, 'users', user.uid, 'integrations', 'clickup'), (snap) => {
-      setIsClickUpConnected(snap.exists())
-    })
-
-    return () => { unsubTasks(); unsubClickup() }
+    return () => { unsubTasks() }
   }, [user])
 
   // Google Tasks fetchers
@@ -1354,55 +1457,6 @@ function ChecklistPanel({ open, onClose, user, connectClickUp, googleToken, setG
       console.error('Failed to delete Google Task', err)
       fetchTasksForList(googleToken, activeListId)
       toast.error('Could not delete task')
-    }
-  }
-
-  const syncClickUp = async () => {
-    if (!user) return toast.error('Sign in to sync with ClickUp')
-    setIsSyncing(true)
-    toast('Fetching ClickUp tasks...', { icon: '🔄' })
-    try {
-      const snap = await getDoc(doc(db, 'users', user.uid, 'integrations', 'clickup'))
-      if (!snap.exists()) return toast.error('ClickUp not connected')
-      const { access_token } = snap.data()
-
-      const res = await fetch('/api/clickup/tasks', {
-        headers: { 'Authorization': access_token }
-      })
-      const data = await res.json()
-      
-      if (data.error) {
-        throw new Error(data.error)
-      }
-
-      const allTasks = data.tasks || []
-
-      if (allTasks.length > 0) {
-        const existingTexts = new Set(remoteTasks.map(t => t.text.toLowerCase()))
-        let addedCount = 0
-        
-        for (const ct of allTasks) {
-          if (!existingTexts.has(ct.name.toLowerCase())) {
-             const newTask = { 
-               userId: user.uid, 
-               text: ct.name, 
-               done: ct.status?.type === 'closed', 
-               createdAt: Date.now(),
-               clickupId: ct.id 
-             }
-             await addDoc(collection(db, 'users', user.uid, 'tasks'), newTask)
-             addedCount++
-          }
-        }
-        toast.success(`Synced ${addedCount} new tasks from ClickUp`)
-      } else {
-        toast('No new ClickUp tasks found')
-      }
-    } catch (err: any) {
-      console.error(err)
-      toast.error(`Sync failed: ${err.message || 'ClickUp API error'}`)
-    } finally {
-      setIsSyncing(false)
     }
   }
 
@@ -2350,19 +2404,7 @@ function Row({ label, children }: { label: string, children: React.ReactNode }) 
   )
 }
 interface AppSettings { name: string; showGreeting: boolean; bgId: string; rain: number; blur: number; dim: number; grain: boolean; clockSize: number }
-function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, connectClickUp }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, connectClickUp: () => void }) {
-  const [redirectUris, setRedirectUris] = useState<{ spotify: string, clickup: string } | null>(null)
-  
-  useEffect(() => {
-    if (open) {
-      const base = window.location.origin
-      setRedirectUris({
-        spotify: `${base}/auth/spotify/callback`,
-        clickup: `${base}/api/auth/clickup/callback`
-      })
-    }
-  }, [open])
-
+function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void }) {
   const upd = (k: keyof AppSettings, v: any) => setSettings({ ...settings, [k]: v })
   return (
     <Panel open={open} onClose={onClose} title="Settings" icon={<SettingsIcon className="h-4 w-4" />} width="max-w-xl">
@@ -2391,29 +2433,6 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
              <Button variant="outline" onClick={connectSpotify} className="w-full border-white/10 text-white/80 hover:bg-white/5 h-10 text-[10px] uppercase tracking-wider font-bold">
                 <Music2 className="h-3.5 w-3.5 mr-2" /> Spotify
              </Button>
-          </div>
-          {redirectUris && (
-            <div className="mt-4 p-3 rounded-lg bg-white/5 border border-white/10 space-y-3">
-              <div className="text-[10px] uppercase tracking-widest text-white/40 font-bold">OAuth Configuration</div>
-              <div className="space-y-1.5">
-                <div className="text-[9px] text-white/60">Add these to your provider redirect URIs:</div>
-                <div className="p-1.5 bg-black/40 rounded border border-white/5 font-mono text-[9px] break-all select-all text-[#1DB954]">
-                  {redirectUris.spotify}
-                </div>
-              </div>
-            </div>
-          )}
-        </Section>
-        <Section title="Scene">
-          <div className="grid grid-cols-3 gap-2">
-            {BACKGROUNDS.map(b => (
-              <button key={b.id} onClick={() => upd('bgId', b.id)}
-                className={`relative aspect-video rounded-lg overflow-hidden border-2 transition-all ${settings.bgId === b.id ? 'border-white' : 'border-transparent hover:border-white/30'}`}>
-                <img src={b.url} alt={b.name} className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                <span className="absolute bottom-1 left-2 text-[11px] text-white/90">{b.name}</span>
-              </button>
-            ))}
           </div>
         </Section>
         <Section title="Atmosphere">
@@ -2499,9 +2518,9 @@ function QuotePill() {
   if (!q) return null
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.2, duration: 1 }}
-      className="fixed bottom-28 left-8 text-left w-full max-w-xs z-10 hidden md:block">
-      <div className="italic font-serif text-lg text-white/40 leading-relaxed">&ldquo;{q.q}&rdquo;</div>
-      <div className="mt-2 text-[9px] uppercase tracking-[0.25em] text-white/20">— {q.a}</div>
+      className="fixed bottom-28 left-8 text-left w-full max-w-xs z-50 hidden md:block pointer-events-auto">
+      <div className="italic font-serif text-lg text-white/80 leading-relaxed drop-shadow-md">&ldquo;{q.q}&rdquo;</div>
+      <div className="mt-2 text-[9px] uppercase tracking-[0.25em] text-white/50 font-medium">— {q.a}</div>
     </motion.div>
   )
 }
@@ -2514,7 +2533,25 @@ const DEFAULT_SETTINGS: AppSettings = {
 
 const App = () => {
   const [user, setUser] = useState<User | null>(null)
-  const [googleToken, setGoogleToken] = useState<string | null>(null)
+  const [googleToken, setGoogleTokenState] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('oblivion.google_token') || null
+    } catch {
+      return null
+    }
+  })
+
+  const setGoogleToken = useCallback((token: string | null) => {
+    setGoogleTokenState(token)
+    try {
+      if (token) {
+        sessionStorage.setItem('oblivion.google_token', token)
+      } else {
+        sessionStorage.removeItem('oblivion.google_token')
+      }
+    } catch {}
+  }, [])
+
   const [settings, setSettings] = useSynced<AppSettings>('oblivion.settings', DEFAULT_SETTINGS, user)
   const [open, setOpen] = useState<string | null>(null)
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -2608,7 +2645,10 @@ const App = () => {
     }
   }
 
-  const logout = () => signOut(auth)
+  const logout = () => {
+    setGoogleToken(null)
+    signOut(auth)
+  }
 
   const connectSpotify = async () => {
     try {
@@ -2684,8 +2724,6 @@ const App = () => {
     return () => window.removeEventListener('message', handleMessage)
   }, [user])
 
-  const bg = BACKGROUNDS.find(b => b.id === settings.bgId) || BACKGROUNDS[0]
-
   const toggleFullscreen = useCallback(() => {
     if (typeof document === 'undefined') return
     if (!document.fullscreenElement) {
@@ -2727,78 +2765,178 @@ const App = () => {
   }, [toggleFullscreen])
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden text-[#e0d8d0]">
+    <div className="relative w-screen h-screen overflow-hidden bg-black text-[#e0d8d0] font-sans selection:bg-[#e8702a]/30">
+      <CustomCursor />
       <Toaster position="top-right" toastOptions={{ className: 'glass text-white border-white/20' }} />
-      <AnimatePresence mode="sync">
-        <motion.div key={bg.id}
-          initial={{ opacity: 0, scale: 1.04 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0 }}
-          transition={{ duration: 1.6, ease: [0.22, 1, 0.36, 1] }}
-          className="absolute inset-0"
-        >
-          <img src={bg.url} alt="" className="absolute inset-0 w-full h-full object-cover"
-            style={{ filter: `blur(${settings.blur}px)`, transform: 'scale(1.05)' }} />
-          <div className="absolute inset-0 opacity-40 pointer-events-none density-gradient" />
-          <div className="absolute inset-0" style={{ background: `radial-gradient(ellipse at center, rgba(0,0,0,0.1), rgba(0,0,0,${settings.dim / 100}) 80%)` }} />
-          <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-transparent to-black/60" />
-        </motion.div>
-      </AnimatePresence>
 
-      {mounted && settings.rain > 0 && <Rain intensity={settings.rain} />}
-      {mounted && settings.grain && <div className="grain" />}
+      {/* Hero Section */}
+      <section className="relative w-full h-screen overflow-hidden bg-black" style={{ height: '100dvh' }}>
+        {/* Base geological landscape image (z-10) with slow zoom */}
+        <div
+          className="absolute inset-0 bg-center bg-cover bg-no-repeat z-10 hero-zoom"
+          style={{ backgroundImage: `url(${BG_IMAGE_1})` }}
+        />
 
-      <WeatherWidget />
+        {/* Reveal image layer (z-30) */}
+        <RevealLayer image={BG_IMAGE_2} />
 
-      <div className="absolute top-8 right-8 flex gap-4 text-[10px] tracking-widest font-mono uppercase z-20 items-center">
-        {!user ? (
-          <button onClick={login} className="text-white hover:text-white transition-all bg-white/5 border border-white/10 rounded-full px-3 py-1 mr-2 flex items-center gap-2">
-            <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse" />
-            Sign in to sync
-          </button>
-        ) : (
-          <div className="flex items-center gap-2 mr-2 text-white/40">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-            <span className="normal-case font-sans tracking-normal">{user.displayName}</span>
+        {/* Rain animation if enabled */}
+        {mounted && settings.rain > 0 && <Rain intensity={settings.rain} />}
+        {mounted && settings.grain && <div className="grain z-20 pointer-events-none" />}
+
+        {/* Top Fixed Navigation Bar */}
+        <nav className="fixed top-0 left-0 right-0 z-[100] flex items-center justify-between p-4 sm:p-6">
+          {/* Brand wordmark without logo */}
+          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setOpen(null)}>
+            <span className="text-white text-2xl font-playfair italic tracking-tight drop-shadow-md hover:text-white/90 transition-colors">Oblivion</span>
           </div>
-        )}
-        <div className="hidden md:block font-mono text-white/30">(N) Notes</div>
-        <div className="hidden md:block font-mono text-white/30">(T) Tasks</div>
-        <div className="hidden md:block font-mono text-white/30">(P) Focus</div>
-        <div className="hidden md:block font-mono text-white/30">(F) Fullscreen</div>
-      </div>
 
-      <div className="relative z-10 h-full w-full flex flex-col items-center justify-center px-6 gap-6">
-        {settings.showGreeting && mounted && <Greeting name={settings.name} />}
-        <Clock size={settings.clockSize} />
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.8, duration: 1 }}
-          className="flex items-center gap-2 -mt-8">
-          <button onClick={() => setOpen('tasks')}
-            className="rounded-full px-4 py-2 text-[10px] uppercase tracking-widest text-white/30 hover:text-white transition-colors flex items-center gap-2">
-            What will you focus on?
-            <ChevronRight className="h-3 w-3" />
-          </button>
-        </motion.div>
-      </div>
+          {/* Center Glassmorphism Pill Menu */}
+          <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-black/40 backdrop-blur-xl border border-white/15 rounded-full px-2 py-1.5 items-center gap-1 shadow-2xl">
+            <button
+              onClick={() => setOpen('pomo')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'pomo' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+            >
+              Pomodoro
+            </button>
+            <button
+              onClick={() => setOpen('tasks')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'tasks' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+            >
+              Tasks
+            </button>
+            <button
+              onClick={() => setOpen('cal')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'cal' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+            >
+              Calendar
+            </button>
+            <button
+              onClick={() => setOpen('notes')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'notes' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+            >
+              Notes
+            </button>
+            <button
+              onClick={() => setOpen('music')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'music' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+            >
+              Music
+            </button>
+            <button
+              onClick={() => setOpen('stats')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'stats' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+            >
+              Stats
+            </button>
+            <button
+              onClick={() => setOpen('settings')}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'settings' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              title="Settings"
+            >
+              <SettingsIcon className="h-3.5 w-3.5" />
+            </button>
+          </div>
 
-      <div onClick={() => setOpen('pomo')} className="fixed bottom-8 right-8 hidden md:flex items-center gap-4 glass-strong px-5 py-3 rounded-2xl z-20 shadow-2xl border-white/5 animate-in fade-in slide-in-from-bottom-4 duration-1000 cursor-pointer hover:bg-white/5 transition-colors group">
-        <div className="w-10 h-10 bg-white/5 rounded-full flex items-center justify-center text-xs shadow-inner border border-white/5 group-hover:border-white/20 transition-colors">
-          <Timer className={`h-5 w-5 ${pomoRunning ? 'text-white' : 'text-white/40'}`} />
+          {/* Right Account Sign In */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setOpen('settings')}
+              className="md:hidden p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white/80 hover:text-white"
+              title="Settings"
+            >
+              <SettingsIcon className="h-4 w-4" />
+            </button>
+            {!user ? (
+              <button
+                onClick={login}
+                className="bg-[#e8702a] hover:bg-[#d2611f] text-white text-xs font-semibold px-5 py-2 rounded-full transition-all shadow-lg active:scale-95 flex items-center gap-2"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                Sign In
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 bg-black/40 backdrop-blur-md border border-white/20 rounded-full px-3 py-1.5 shadow-lg">
+                <img src={user.photoURL || ''} className="w-6 h-6 rounded-full border border-[#e8702a]/50" alt="" />
+                <span className="text-xs font-medium text-white hidden sm:inline">{user.displayName}</span>
+                <button onClick={logout} className="text-[10px] uppercase font-mono text-white/50 hover:text-[#e8702a] pl-1">Out</button>
+              </div>
+            )}
+          </div>
+        </nav>
+
+        {/* Integrated Central Clock/Timer Hub in exact screen center */}
+        <div className="absolute inset-0 z-50 flex flex-col items-center justify-center pt-28 sm:pt-36 md:pt-40 px-6 pointer-events-none">
+          <div className="pointer-events-auto flex flex-col items-center max-w-sm w-full">
+            <Clock size={settings.clockSize} />
+
+            {/* Pomodoro controls in center - sleek, frameless & transparent */}
+            <div className="mt-5 w-full flex flex-col items-center gap-3">
+              {/* Mode Pills */}
+              <div className="flex items-center gap-1.5 p-1 rounded-full justify-center">
+                <button
+                  onClick={() => { setPomoMode('focus'); setPomoRunning(false); }}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${pomoMode === 'focus' ? 'bg-[#e8702a] text-white font-semibold shadow-lg shadow-[#e8702a]/35 ring-1 ring-[#e8702a]/50' : 'text-white/80 hover:text-white bg-black/30 hover:bg-black/50 backdrop-blur-sm'}`}
+                >
+                  Focus ({pomoFocusMin}m)
+                </button>
+                <button
+                  onClick={() => { setPomoMode('short'); setPomoRunning(false); }}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${pomoMode === 'short' ? 'bg-[#e8702a] text-white font-semibold shadow-lg shadow-[#e8702a]/35 ring-1 ring-[#e8702a]/50' : 'text-white/80 hover:text-white bg-black/30 hover:bg-black/50 backdrop-blur-sm'}`}
+                >
+                  Short ({pomoShortMin}m)
+                </button>
+                <button
+                  onClick={() => { setPomoMode('long'); setPomoRunning(false); }}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${pomoMode === 'long' ? 'bg-[#e8702a] text-white font-semibold shadow-lg shadow-[#e8702a]/35 ring-1 ring-[#e8702a]/50' : 'text-white/80 hover:text-white bg-black/30 hover:bg-black/50 backdrop-blur-sm'}`}
+                >
+                  Long ({pomoLongMin}m)
+                </button>
+              </div>
+
+              {/* Digital countdown & Play/Pause */}
+              <div className="flex items-center justify-center gap-4 py-1 px-4">
+                <span className="font-mono text-3xl sm:text-4xl font-bold tracking-wider text-white text-glow">
+                  {Math.floor(pomoRemaining / 60).toString().padStart(2, '0')}:{(pomoRemaining % 60).toString().padStart(2, '0')}
+                </span>
+                <button
+                  onClick={() => setPomoRunning(!pomoRunning)}
+                  className="w-10 h-10 rounded-full bg-[#e8702a] hover:bg-[#d2611f] text-white flex items-center justify-center transition-all shadow-lg shadow-[#e8702a]/35 hover:scale-105 active:scale-95"
+                  title={pomoRunning ? 'Pause' : 'Start'}
+                >
+                  {pomoRunning ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
+                </button>
+                <button
+                  onClick={() => { setPomoRunning(false); setPomoRemaining(pomoTotal); }}
+                  className="w-8 h-8 rounded-full bg-black/40 hover:bg-black/60 text-white/70 hover:text-white flex items-center justify-center transition-all backdrop-blur-sm"
+                  title="Reset"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              {/* Cycle indicator dots */}
+              <div className="flex items-center gap-1.5 mt-0.5">
+                {[0, 1, 2, 3].map(i => (
+                  <div
+                    key={i}
+                    className={`h-2 w-2 rounded-full transition-all ${i < (pomoCycles % 4) ? 'bg-[#e8702a] shadow-md shadow-[#e8702a]/60' : 'bg-white/20'}`}
+                  />
+                ))}
+                <span className="text-[10px] text-white/60 font-mono ml-2">Streak: {pomoCycles}</span>
+              </div>
+            </div>
+          </div>
         </div>
-        <div className="flex flex-col pr-2">
-          <div className="text-[11px] font-bold text-white/80 uppercase tracking-widest">
-            {pomoRunning ? (
-              <span className="flex items-center gap-2">
-                {Math.floor((pomoTotal - pomoRemaining) / 60)}:{String((pomoTotal - pomoRemaining) % 60).padStart(2, '0')} Elapsed
-              </span>
-            ) : 'Session Progress'}
-          </div>
-          <div className="text-[10px] text-white/40 uppercase tracking-wider font-medium mt-0.5">
-            {pomoRunning ? `${pomoMode} session active` : 'Ready for deep work'}
-          </div>
-        </div>
-      </div>
 
+        {/* Weather Widget */}
+        <WeatherWidget />
+      </section>
+
+      {/* Quote Pill */}
       <QuotePill />
 
+      {/* Panels */}
       <StatsPanel 
         open={open === 'stats'} 
         onClose={() => setOpen(null)} 
@@ -2810,8 +2948,8 @@ const App = () => {
         pomoTotal={pomoTotal}
         pomoMode={pomoMode}
       />
-      <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} connectClickUp={connectClickUp} googleToken={googleToken} setGoogleToken={setGoogleToken} />
-      <ChecklistPanel open={open === 'tasks'} onClose={() => setOpen(null)} user={user} connectClickUp={connectClickUp} googleToken={googleToken} setGoogleToken={setGoogleToken} />
+      <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
+      <ChecklistPanel open={open === 'tasks'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
       <PomodoroPanel 
         open={open === 'pomo'} 
         onClose={() => setOpen(null)}
@@ -2833,11 +2971,19 @@ const App = () => {
       />
       <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
       <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
-      <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} connectClickUp={connectClickUp} />
+      <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} />
 
       <PersistentMusicPlayer playlistId={playlistId} visible={open === 'music'} />
-      <AIAgentBlob />
-      <Dock onAction={dispatch} isFullscreen={isFullscreen} />
+
+      {/* Dedicated Fullscreen Toggle Button at Bottom Right */}
+      <button
+        onClick={toggleFullscreen}
+        className="fixed bottom-6 right-6 z-[120] h-11 w-11 rounded-full bg-black/50 backdrop-blur-xl hover:bg-black/80 text-white flex items-center justify-center transition-all shadow-xl hover:scale-105 active:scale-95 border border-white/20 group"
+        title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+        aria-label="Toggle Fullscreen"
+      >
+        {isFullscreen ? <Minimize2 className="h-5 w-5 text-white/90 group-hover:text-white" /> : <Maximize2 className="h-5 w-5 text-white/90 group-hover:text-white" />}
+      </button>
     </div>
   )
 }
