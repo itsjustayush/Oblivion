@@ -5,7 +5,7 @@
 
 'use client'
 
-import React, { useEffect, useMemo, useState, useCallback } from 'react'
+import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   Home, StickyNote, ListChecks, Timer, CalendarDays, Music2, Settings as SettingsIcon,
@@ -40,8 +40,6 @@ const PLAYLISTS = [
   { id: '37i9dQZF1DXbITWG1ZJKYt', name: 'Jazz Café' },
   { id: '37i9dQZF1DWZeKCadgRdKQ', name: 'Deep Focus' },
   { id: '37i9dQZF1DX3Ogo9pFvBkY', name: 'Ambient Study' },
-  { id: '37i9dQZF1DX4sWsp69URu3', name: 'Nature Sounds' },
-  { id: '37i9dQZF1DX8Ueb99uayOV', name: 'Lofi Sleep' },
 ]
 
 import { initializeApp } from 'firebase/app';
@@ -472,47 +470,126 @@ function Greeting({ name }: { name: string }) {
 
 /* ----------------------------- Custom Cursor ----------------------------- */
 function CustomCursor() {
-  const [pos, setPos] = useState({ x: -100, y: -100 })
-  const [trail, setTrail] = useState({ x: -100, y: -100 })
-  const [isHovered, setIsHovered] = useState(false)
-  const [isClicked, setIsClicked] = useState(false)
-  const [visible, setVisible] = useState(false)
+  const dotRef = useRef<HTMLDivElement>(null)
+  const dotInnerRef = useRef<HTMLDivElement>(null)
+  const ringRef = useRef<HTMLDivElement>(null)
+  const ringInnerRef = useRef<HTMLDivElement>(null)
+
+  const mouseRef = useRef({ x: -100, y: -100 })
+  const trailRef = useRef({ x: -100, y: -100 })
+  const isHoveredRef = useRef(false)
+  const isClickedRef = useRef(false)
+  const isVisibleRef = useRef(false)
 
   useEffect(() => {
     document.documentElement.classList.add('custom-cursor-active')
 
-    const handleMouseMove = (e: MouseEvent) => {
-      setPos({ x: e.clientX, y: e.clientY })
-      if (!visible) setVisible(true)
+    const updateStyles = () => {
+      const dotInner = dotInnerRef.current
+      const ringInner = ringInnerRef.current
+      if (!dotInner || !ringInner) return
 
-      const target = e.target as HTMLElement | null
-      if (
-        target &&
-        (target.tagName === 'BUTTON' ||
-          target.tagName === 'A' ||
-          target.tagName === 'INPUT' ||
-          target.tagName === 'TEXTAREA' ||
-          target.closest('button') ||
-          target.closest('a') ||
-          target.getAttribute('role') === 'button' ||
-          target.classList.contains('cursor-pointer'))
-      ) {
-        setIsHovered(true)
+      const isHovered = isHoveredRef.current
+      const isClicked = isClickedRef.current
+
+      if (isHovered) {
+        dotInner.className = "rounded-full -translate-x-1/2 -translate-y-1/2 transition-all duration-150 ease-out w-3 h-3 bg-[#e8702a] shadow-md shadow-[#e8702a]/60"
+        ringInner.className = "rounded-full -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ease-out w-11 h-11 border border-[#e8702a] bg-[#e8702a]/15 scale-110 shadow-lg shadow-[#e8702a]/20"
+      } else if (isClicked) {
+        dotInner.className = "rounded-full -translate-x-1/2 -translate-y-1/2 transition-all duration-150 ease-out w-2 h-2 bg-white"
+        ringInner.className = "rounded-full -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ease-out w-7 h-7 border border-white/80 bg-white/20 scale-90"
       } else {
-        setIsHovered(false)
+        dotInner.className = "rounded-full -translate-x-1/2 -translate-y-1/2 transition-all duration-150 ease-out w-2 h-2 bg-white"
+        ringInner.className = "rounded-full -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ease-out w-8 h-8 border border-white/40 bg-white/5"
       }
     }
 
-    const handleMouseDown = () => setIsClicked(true)
-    const handleMouseUp = () => setIsClicked(false)
-    const handleMouseLeave = () => setVisible(false)
-    const handleMouseEnter = () => setVisible(true)
+    const handleMouseMove = (e: MouseEvent) => {
+      mouseRef.current = { x: e.clientX, y: e.clientY }
 
-    window.addEventListener('mousemove', handleMouseMove)
-    window.addEventListener('mousedown', handleMouseDown)
-    window.addEventListener('mouseup', handleMouseUp)
+      if (!isVisibleRef.current) {
+        isVisibleRef.current = true
+        if (dotRef.current) dotRef.current.style.opacity = '1'
+        if (ringRef.current) ringRef.current.style.opacity = '1'
+      }
+
+      const target = e.target as HTMLElement | null
+      const isHover = Boolean(
+        target && (
+          target.tagName === 'BUTTON' ||
+          target.tagName === 'A' ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.closest('button') ||
+          target.closest('a') ||
+          target.closest('input') ||
+          target.closest('textarea') ||
+          target.closest('select') ||
+          target.closest('[role="button"]') ||
+          target.closest('.cursor-pointer') ||
+          target.getAttribute('role') === 'button' ||
+          target.classList.contains('cursor-pointer')
+        )
+      )
+
+      if (isHover !== isHoveredRef.current) {
+        isHoveredRef.current = isHover
+        updateStyles()
+      }
+    }
+
+    const handleMouseDown = () => {
+      isClickedRef.current = true
+      updateStyles()
+    }
+
+    const handleMouseUp = () => {
+      isClickedRef.current = false
+      updateStyles()
+    }
+
+    const handleMouseLeave = () => {
+      isVisibleRef.current = false
+      if (dotRef.current) dotRef.current.style.opacity = '0'
+      if (ringRef.current) ringRef.current.style.opacity = '0'
+    }
+
+    const handleMouseEnter = () => {
+      isVisibleRef.current = true
+      if (dotRef.current) dotRef.current.style.opacity = '1'
+      if (ringRef.current) ringRef.current.style.opacity = '1'
+    }
+
+    window.addEventListener('mousemove', handleMouseMove, { passive: true })
+    window.addEventListener('mousedown', handleMouseDown, { passive: true })
+    window.addEventListener('mouseup', handleMouseUp, { passive: true })
     document.addEventListener('mouseleave', handleMouseLeave)
     document.addEventListener('mouseenter', handleMouseEnter)
+
+    let animId: number
+    const loop = () => {
+      if (isVisibleRef.current) {
+        const mx = mouseRef.current.x
+        const my = mouseRef.current.y
+
+        // Dot follows cursor immediately
+        if (dotRef.current) {
+          dotRef.current.style.transform = `translate3d(${mx}px, ${my}px, 0)`
+        }
+
+        // Smooth trailing ring lerp
+        trailRef.current.x += (mx - trailRef.current.x) * 0.3
+        trailRef.current.y += (my - trailRef.current.y) * 0.3
+
+        if (ringRef.current) {
+          ringRef.current.style.transform = `translate3d(${trailRef.current.x}px, ${trailRef.current.y}px, 0)`
+        }
+      }
+      animId = requestAnimationFrame(loop)
+    }
+
+    animId = requestAnimationFrame(loop)
 
     return () => {
       document.documentElement.classList.remove('custom-cursor-active')
@@ -521,51 +598,35 @@ function CustomCursor() {
       window.removeEventListener('mouseup', handleMouseUp)
       document.removeEventListener('mouseleave', handleMouseLeave)
       document.removeEventListener('mouseenter', handleMouseEnter)
+      cancelAnimationFrame(animId)
     }
-  }, [visible])
-
-  useEffect(() => {
-    let animId: number
-    const updateTrail = () => {
-      setTrail(prev => {
-        const dx = pos.x - prev.x
-        const dy = pos.y - prev.y
-        if (Math.abs(dx) < 0.05 && Math.abs(dy) < 0.05) return prev
-        return {
-          x: prev.x + dx * 0.35,
-          y: prev.y + dy * 0.35
-        }
-      })
-      animId = requestAnimationFrame(updateTrail)
-    }
-    animId = requestAnimationFrame(updateTrail)
-    return () => cancelAnimationFrame(animId)
-  }, [pos])
-
-  if (!visible) return null
+  }, [])
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[99999] overflow-hidden">
+      {/* Outer Ring Positioning Container */}
       <div
-        className={`fixed top-0 left-0 rounded-full border transition-transform duration-75 ease-out ${
-          isHovered
-            ? 'w-10 h-10 border-[#e8702a] bg-[#e8702a]/15 scale-125'
-            : isClicked
-            ? 'w-7 h-7 border-white/80 bg-white/20 scale-90'
-            : 'w-8 h-8 border-white/40 bg-white/5'
-        }`}
-        style={{
-          transform: `translate3d(${trail.x - (isHovered ? 20 : isClicked ? 14 : 16)}px, ${trail.y - (isHovered ? 20 : isClicked ? 14 : 16)}px, 0)`
-        }}
-      />
+        ref={ringRef}
+        style={{ opacity: 0 }}
+        className="fixed top-0 left-0 pointer-events-none z-[99998] will-change-transform"
+      >
+        <div
+          ref={ringInnerRef}
+          className="rounded-full -translate-x-1/2 -translate-y-1/2 transition-all duration-200 ease-out w-8 h-8 border border-white/40 bg-white/5"
+        />
+      </div>
+
+      {/* Outer Dot Positioning Container */}
       <div
-        className={`fixed top-0 left-0 rounded-full transition-all duration-75 ${
-          isHovered ? 'w-2.5 h-2.5 bg-[#e8702a] shadow-md shadow-[#e8702a]/50' : 'w-2 h-2 bg-white'
-        }`}
-        style={{
-          transform: `translate3d(${pos.x - (isHovered ? 5 : 4)}px, ${pos.y - (isHovered ? 5 : 4)}px, 0)`
-        }}
-      />
+        ref={dotRef}
+        style={{ opacity: 0 }}
+        className="fixed top-0 left-0 pointer-events-none z-[99999] will-change-transform"
+      >
+        <div
+          ref={dotInnerRef}
+          className="rounded-full -translate-x-1/2 -translate-y-1/2 transition-all duration-150 ease-out w-2 h-2 bg-white"
+        />
+      </div>
     </div>
   )
 }
@@ -2302,86 +2363,135 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
     }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/integrations/spotify`))
   }, [user])
 
-  return (
-    <Panel open={open} onClose={onClose} title="Focus Playlists" icon={<Music2 className="h-4 w-4" />} width="max-w-xl">
-      <div className="p-8 space-y-8 h-full overflow-y-auto thin-scroll">
-        <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="text-xs uppercase tracking-[0.25em] text-white/30 font-bold mb-1">Curation</div>
-            <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">Choose your vibe</h2>
-          </div>
-          <button onClick={connectSpotify} className={`px-4 py-2 rounded-xl text-[10px] uppercase font-bold tracking-widest flex items-center gap-2 border transition-all h-fit ${isConnected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-white/5 border-white/10 text-white/50 hover:bg-green-500/10 hover:border-green-500/30 hover:text-green-400'}`}>
-            {isConnected ? <><Check className="h-4 w-4" /> Connected</> : <><Music2 className="h-4 w-4" /> Link Spotify</>}
-          </button>
-        </header>
+  const activePlaylist = PLAYLISTS.find(p => p.id === playlistId) || PLAYLISTS[0]
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-8">
-          {PLAYLISTS.map(p => (
-            <button 
-              key={p.id} 
-              onClick={() => setPlaylistId(p.id)}
-              className={`group relative p-5 rounded-2xl transition-all border flex items-center gap-4 text-left overflow-hidden ${
-                playlistId === p.id 
-                  ? 'bg-white border-white scale-[1.02] shadow-xl shadow-white/10' 
-                  : 'bg-white/[0.03] border-white/5 hover:border-white/20 hover:bg-white/[0.06]'
-              }`}
-            >
-              <div className={`shrink-0 h-12 w-12 rounded-xl flex items-center justify-center transition-colors ${playlistId === p.id ? 'bg-black/10' : 'bg-white/5 group-hover:bg-white/10'}`}>
-                <Music2 className={`h-6 w-6 ${playlistId === p.id ? 'text-black' : 'text-white/40'}`} />
-              </div>
-              <div className="flex flex-col">
-                <span className={`text-[11px] font-black uppercase tracking-[0.15em] ${playlistId === p.id ? 'text-black' : 'text-white'}`}>{p.name}</span>
-                <span className={`text-[10px] font-medium opacity-40 ${playlistId === p.id ? 'text-black' : 'text-white'}`}>Open on your dock</span>
-              </div>
-              {playlistId === p.id && (
-                <div className="absolute right-4">
-                  <div className="h-2 w-2 rounded-full bg-black animate-ping" />
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <div className="rounded-3xl border border-white/10 p-8 flex flex-col items-center justify-center text-center bg-white/[0.01] relative overflow-hidden group">
-           <div className="relative z-10">
-             <div className="h-14 w-14 rounded-2xl bg-white/5 flex items-center justify-center mb-4 mx-auto group-hover:scale-110 transition-transform">
-               <Sparkles className="h-7 w-7 text-white/20" />
-             </div>
-             <div className="text-xs text-white/50 font-bold uppercase tracking-widest mb-1">Persistent Audio</div>
-             <div className="text-[10px] text-white/20 leading-relaxed max-w-[200px]">Music continues playing in the background while you focus.</div>
-           </div>
-           <div className="absolute top-0 right-0 -mt-8 -mr-8 h-32 w-32 bg-white/5 rounded-full blur-3xl opacity-0 group-hover:opacity-100 transition-opacity" />
-        </div>
-      </div>
-    </Panel>
-  )
-}
-
-/* ----------------------------- Persistent Music Player ----------------------------- */
-function PersistentMusicPlayer({ playlistId, visible }: { playlistId: string, visible: boolean }) {
   return (
     <div 
-      className="fixed transition-all duration-700 ease-in-out z-50 overflow-hidden rounded-2xl shadow-2xl border border-white/10 bg-black/40"
-      style={{ 
-        bottom: visible ? '100px' : '-500px', 
-        right: '2rem', 
-        width: '310px', 
-        height: '400px',
-        opacity: visible ? 1 : 0,
-        pointerEvents: visible ? 'auto' : 'none',
-        visibility: 'visible', // Keep it rendered
-      }}
+      className={`fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 transition-all duration-300 ${
+        open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+      }`}
     >
-      <iframe 
-        key={playlistId} 
-        title="Spotify"
-        src={`https://open.spotify.com/embed/playlist/${playlistId}?utm_source=oblivion&theme=0`}
-        width="100%" 
-        height="100%" 
-        frameBorder="0"
-        allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
-        loading="lazy" 
+      {/* Backdrop */}
+      <div 
+        className="absolute inset-0 bg-black/75 backdrop-blur-md" 
+        onClick={onClose} 
       />
+
+      {/* Main Split Window Container */}
+      <div className={`relative glass-strong rounded-2xl w-full max-w-5xl h-[82vh] max-h-[720px] overflow-hidden flex flex-col shadow-2xl border border-white/20 z-10 transition-all duration-300 ${
+        open ? 'scale-100 translate-y-0' : 'scale-95 translate-y-4'
+      }`}>
+        {/* Modal Top Header */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-black/50">
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-white/10 text-white">
+              <Music2 className="h-4 w-4" />
+            </div>
+            <span className="font-semibold text-sm text-white tracking-wide">Focus Playlists</span>
+          </div>
+          <button 
+            onClick={onClose} 
+            className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Modal Content Split Layout */}
+        <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden divide-y md:divide-y-0 md:divide-x divide-white/10">
+          
+          {/* Left Column: Curation & Playlist Selection */}
+          <div className="w-full md:w-1/2 p-6 md:p-8 space-y-6 overflow-y-auto thin-scroll flex flex-col justify-between">
+            <div className="space-y-6">
+              <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="text-xs uppercase tracking-[0.25em] text-white/30 font-bold mb-1">Curation</div>
+                  <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">Choose your vibe</h2>
+                </div>
+                <button onClick={connectSpotify} className={`px-4 py-2 rounded-xl text-[10px] uppercase font-bold tracking-widest flex items-center gap-2 border transition-all h-fit ${isConnected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-white/5 border-white/10 text-white/50 hover:bg-green-500/10 hover:border-green-500/30 hover:text-green-400'}`}>
+                  {isConnected ? <><Check className="h-4 w-4" /> Connected</> : <><Music2 className="h-4 w-4" /> Link Spotify</>}
+                </button>
+              </header>
+
+              <div className="grid grid-cols-1 gap-2.5">
+                {PLAYLISTS.map(p => {
+                  const isSelected = playlistId === p.id
+                  return (
+                    <button 
+                      key={p.id} 
+                      onClick={() => setPlaylistId(p.id)}
+                      className={`group relative p-4 rounded-2xl transition-all border flex items-center justify-between text-left overflow-hidden ${
+                        isSelected 
+                          ? 'bg-white text-black border-white shadow-xl shadow-white/10 scale-[1.01]' 
+                          : 'bg-white/[0.03] text-white border-white/5 hover:border-white/20 hover:bg-white/[0.06]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-3.5 min-w-0">
+                        <div className={`shrink-0 h-11 w-11 rounded-xl flex items-center justify-center transition-colors ${isSelected ? 'bg-black/10' : 'bg-white/5 group-hover:bg-white/10'}`}>
+                          <Music2 className={`h-5 w-5 ${isSelected ? 'text-black' : 'text-white/40'}`} />
+                        </div>
+                        <div className="flex flex-col min-w-0">
+                          <span className={`text-[12px] font-black uppercase tracking-[0.12em] truncate ${isSelected ? 'text-black' : 'text-white'}`}>{p.name}</span>
+                          <span className={`text-[10px] font-medium ${isSelected ? 'text-black/60' : 'text-white/40'}`}>
+                            {isSelected ? 'Loaded in Player' : 'Click to load playlist'}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isSelected ? (
+                          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold uppercase tracking-wider bg-black text-white">
+                            <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
+                            Playing
+                          </span>
+                        ) : (
+                          <ChevronRight className="h-4 w-4 text-white/20 group-hover:text-white/60 group-hover:translate-x-0.5 transition-all" />
+                        )}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 p-4 flex items-center gap-3 bg-white/[0.01] mt-4">
+              <div className="h-9 w-9 rounded-xl bg-white/5 flex items-center justify-center shrink-0">
+                <Sparkles className="h-4 w-4 text-white/30" />
+              </div>
+              <div>
+                <div className="text-[11px] text-white/70 font-bold uppercase tracking-wider">Background Audio</div>
+                <div className="text-[10px] text-white/30 leading-tight">Closing this window keeps your audio playing seamlessly in the background.</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: Spotify Window Embed (Persistent in DOM) */}
+          <div className="w-full md:w-1/2 p-6 md:p-8 bg-black/40 flex flex-col h-full min-h-[400px]">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-xs font-bold uppercase tracking-widest text-white/80">Spotify Player</span>
+              </div>
+              <span className="text-[10px] font-mono text-white/50 uppercase tracking-wider px-2.5 py-1 rounded-full bg-white/5 border border-white/10">{activePlaylist.name}</span>
+            </div>
+
+            <div className="flex-1 w-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-zinc-950 relative min-h-[350px]">
+              <iframe 
+                key={playlistId} 
+                title="Spotify Player Window"
+                src={`https://open.spotify.com/embed/playlist/${playlistId}?utm_source=oblivion&theme=0`}
+                width="100%" 
+                height="100%" 
+                frameBorder="0"
+                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+                loading="lazy" 
+                className="w-full h-full rounded-2xl"
+              />
+            </div>
+          </div>
+
+        </div>
+      </div>
     </div>
   )
 }
@@ -2972,8 +3082,6 @@ const App = () => {
       <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
       <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
       <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} />
-
-      <PersistentMusicPlayer playlistId={playlistId} visible={open === 'music'} />
 
       {/* Dedicated Fullscreen Toggle Button at Bottom Right */}
       <button
