@@ -1,6 +1,6 @@
 {
   "name": "Oblivion",
   "description": "A calm, aesthetic, distraction-free productivity environment inspired by Flocus. Featuring a massive clock, ambient backgrounds, quick notes, checklist, pomodoro timer, and Spotify integration.",
-  "requestFramePermissions": ["microphone", "geolocation"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": []
 }

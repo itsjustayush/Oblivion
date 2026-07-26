@@ -2772,16 +2772,6 @@ const App = () => {
     }
   }
 
-  const connectClickUp = async () => {
-    try {
-      const res = await fetch('/api/auth/clickup/url')
-      const { url } = await res.json()
-      window.open(url, 'clickup_auth', 'width=600,height=700')
-    } catch {
-      toast.error('Failed to initiate ClickUp connection')
-    }
-  }
-
   useEffect(() => {
     const handleMessage = async (e: MessageEvent) => {
       // Valid origins for postMessage
@@ -2807,28 +2797,6 @@ const App = () => {
           }
         } catch (err) {
           toast.error('Failed to link Spotify account')
-        }
-      }
-
-      if (e.data?.type === 'CLICKUP_AUTH_SUCCESS' && e.data?.code) {
-        toast('Syncing with ClickUp...', { icon: '🎯' })
-        try {
-          const response = await fetch('/api/auth/clickup/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: e.data.code })
-          })
-          const tokens = await response.json()
-          
-          if (tokens.access_token && user) {
-            await setDoc(doc(db, 'users', user.uid, 'integrations', 'clickup'), {
-              ...tokens,
-              updatedAt: Date.now()
-            })
-            toast.success('ClickUp connected successfully')
-          }
-        } catch (err) {
-          toast.error('Failed to link ClickUp account')
         }
       }
     }
