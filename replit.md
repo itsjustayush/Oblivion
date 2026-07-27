@@ -17,6 +17,11 @@ A React + TypeScript + Express personal focus workspace with a futuristic cyber-
 
 The configured Replit workflow runs `PORT=5000 npm run dev`.
 
+## Vercel deployment
+- `vercel.json` configures Vercel to run `npm ci` and `npm run build`, outputting `dist/`.
+- `package-lock.json` uses public npm registry URLs (`https://registry.npmjs.org`) so Vercel can install dependencies. If you regenerate the lockfile on Replit, run `sed -i 's|http://package-firewall.replit.local/npm/|https://registry.npmjs.org/|g' package-lock.json` before committing.
+- `package.json` pins Node to >= 22.
+
 ## Required secrets
 Copy `.env.example` to `.env` and fill in at minimum:
 - `GEMINI_API_KEY` — required for the AI assistant
