@@ -43,7 +43,7 @@ const PLAYLISTS = [
 ]
 
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, setPersistence, browserSessionPersistence, User } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, Timestamp, addDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -51,9 +51,48 @@ const app = initializeApp(firebaseConfig);
 const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId || 'ai-studio-0d0d80dd-7827-43ff-af09-0e4f6ee44d44';
 const db = getFirestore(app, firestoreDbId);
 const auth = getAuth(app);
+setPersistence(auth, browserSessionPersistence).catch(() => {});
 const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/calendar');
 googleProvider.addScope('https://www.googleapis.com/auth/tasks');
+
+function isInIframe() {
+  try { return window.self !== window.top } catch { return true }
+}
+
+function extractGoogleToken(result: any) {
+  const cred = GoogleAuthProvider.credentialFromResult(result);
+  return cred?.accessToken ?? null;
+}
+
+async function createUserProfile(user: User) {
+  try {
+    await setDoc(doc(db, 'users', user.uid), {
+      name: user.displayName || '',
+      email: user.email || '',
+      photoURL: user.photoURL || '',
+      updatedAt: Date.now()
+    }, { merge: true });
+  } catch (err) {
+    handleFirestoreError(err, 'create', `users/${user.uid}`);
+  }
+}
+
+async function googleSignIn() {
+  if (isInIframe()) {
+    await signInWithRedirect(auth, googleProvider);
+    return null;
+  }
+  try {
+    return await signInWithPopup(auth, googleProvider);
+  } catch (err: any) {
+    if (err.code === 'auth/popup-blocked' || err.code === 'auth/cancelled-popup-request' || err.code === 'auth/popup-closed-by-user') {
+      await signInWithRedirect(auth, googleProvider);
+      return null;
+    }
+    throw err;
+  }
+}
 
 /* ----------------------------- Spotlight Reveal ----------------------------- */
 const BG_IMAGE_1 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_195923_b0ba8ace-1d1d-4f2c-9a28-1ab84b330680.png&w=1280&q=85";
@@ -981,32 +1020,41 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
   }
 
   const exportToGoogleTasks = async (note: Note) => {
-    if (!googleToken) {
-      toast.error('Connect with Google first (via Tasks or Agenda Sync)')
-      return
+    let token = googleToken
+    if (!token) {
+      toast('Connecting to Google...', { icon: '🔄' })
+      const res = await googleSignIn()
+      if (!res) return
+      token = extractGoogleToken(res)
+      if (!token) {
+        toast.error('No access token')
+        return
+      }
+      setGoogleToken(token)
+      await createUserProfile(res.user)
     }
     toast('Syncing checklist note to Google Tasks...', { icon: '🔄' })
     try {
-      const listsRes = await fetch('https://tasks.googleapis.com/v1/users/@me/lists', {
-        headers: { 'Authorization': `Bearer ${googleToken}` }
+      const listsRes = await fetch('https://tasks.googleapis.com/tasks/v1/users/@me/lists', {
+        headers: { 'Authorization': `Bearer ${token}` }
       })
       const listsData = await listsRes.json()
       const primaryListId = listsData.items && listsData.items.length > 0 ? listsData.items[0].id : '@default'
-      
+
       const payload: any = {
         title: note.title || 'Untitled Note',
         notes: note.body || ''
       }
-      
-      const createRes = await fetch(`https://tasks.googleapis.com/v1/lists/${primaryListId}/tasks`, {
+
+      const createRes = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${primaryListId}/tasks`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${googleToken}`,
+          'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify(payload)
       })
-      
+
       if (createRes.ok) {
         toast.success(`Exported "${note.title}" to Google Tasks!`)
       } else {
@@ -1119,7 +1167,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
   }
 
   return (
-    <Panel open={open} onClose={onClose} title="Google Keep" icon={<StickyNote className="h-4 w-4" />}>
+    <Panel open={open} onClose={onClose} title="Notes" icon={<StickyNote className="h-4 w-4" />}>
       <div className="grid grid-cols-[280px_1fr] h-full min-h-0 bg-zinc-950">
         <div className="border-r border-white/10 flex flex-col min-h-0 bg-black/40">
           <div className="p-3.5 flex items-center gap-2 border-b border-white/5">
@@ -1312,7 +1360,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-white/45 gap-2 select-none">
               <StickyNote className="h-10 w-10 text-white/20 stroke-[1.5]" />
-              <div className="text-xs tracking-wider uppercase font-semibold text-white/30">Google Keep Notes Panel</div>
+              <div className="text-xs tracking-wider uppercase font-semibold text-white/30">Notes Panel</div>
               <div className="text-[10px] text-white/20 italic">Select a note or tap + on the left to add a beautifully synced Keep Note</div>
             </div>
           )}
@@ -1436,15 +1484,16 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
   const linkGoogleTasks = async () => {
     try {
       toast('Connecting to Google...', { icon: '🔄' })
-      const res = await signInWithPopup(auth, googleProvider)
-      const cred = GoogleAuthProvider.credentialFromResult(res)
-      const token = cred?.accessToken ?? null
+      const res = await googleSignIn()
+      if (!res) return
+      const token = extractGoogleToken(res)
       if (!token) throw new Error('No access token')
       setGoogleToken(token)
+      await createUserProfile(res.user)
       toast.success('Connected to Google Tasks')
     } catch (err: any) {
       console.error(err)
-      toast.error('Connection failed')
+      toast.error('Connection failed: ' + (err.message || 'Unknown error'))
     }
   }
 
@@ -1908,6 +1957,7 @@ interface AppEvent {
   when: string; 
   isGoogle?: boolean; 
   calendarId?: string; 
+  googleEventId?: string; 
   calendarConfigColor?: string; 
 }
 
@@ -1978,11 +2028,12 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
       let token = googleToken
       if (!token) {
         toast('Connecting to Google...', { icon: '🔄' })
-        const res = await signInWithPopup(auth, googleProvider)
-        const cred = GoogleAuthProvider.credentialFromResult(res)
-        token = cred?.accessToken ?? null
+        const res = await googleSignIn()
+        if (!res) return
+        token = extractGoogleToken(res)
         if (!token) throw new Error('No access token')
         setGoogleToken(token)
+        await createUserProfile(res.user)
       }
       
       toast('Fetching calendar list...', { icon: '📅' })
@@ -2049,12 +2100,16 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
     if (!title.trim() || !when) return
     let gEventId: string | undefined = undefined;
 
+    let gCalendarId: string | undefined = undefined;
     if (user && googleToken) {
       try {
         toast('Syncing event to Google Calendar...', { icon: '📅' })
         const startIso = new Date(when).toISOString()
         const endIso = new Date(new Date(when).getTime() + 60 * 60 * 1000).toISOString() // 1 hour duration
-        const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone
+        gCalendarId = selectedCalendarIds[0] || 'primary'
+
+        const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(gCalendarId)}/events`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${googleToken}`,
@@ -2062,8 +2117,8 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
           },
           body: JSON.stringify({
             summary: title.trim(),
-            start: { dateTime: startIso },
-            end: { dateTime: endIso }
+            start: { dateTime: startIso, timeZone },
+            end: { dateTime: endIso, timeZone }
           })
         })
         if (res.ok) {
@@ -2080,11 +2135,11 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
 
     if (user) {
       try {
-        const newEv = { 
-          userId: user.uid, 
-          title: title.trim(), 
+        const newEv = {
+          userId: user.uid,
+          title: title.trim(),
           when,
-          ...(gEventId ? { googleEventId: gEventId, isGoogle: true } : {})
+          ...(gEventId ? { googleEventId: gEventId, calendarId: gCalendarId, isGoogle: true } : {})
         }
         await addDoc(collection(db, 'users', user.uid, 'events'), newEv)
       } catch (err) {
@@ -2102,10 +2157,11 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
     if (user) {
       try {
         const eventToDel = remoteEvents.find(e => e.id === id)
-        const gId = (eventToDel as any)?.googleEventId
+        const gId = eventToDel?.googleEventId
+        const gCalId = eventToDel?.calendarId || 'primary'
         if (googleToken && gId) {
           try {
-            await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events/${gId}`, {
+            await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(gCalId)}/events/${gId}`, {
               method: 'DELETE',
               headers: { 'Authorization': `Bearer ${googleToken}` }
             })
@@ -2719,6 +2775,16 @@ const App = () => {
 
   useEffect(() => {
     setMounted(true)
+    getRedirectResult(auth).then((result) => {
+      if (result?.user) {
+        const token = extractGoogleToken(result)
+        if (token) setGoogleToken(token)
+        createUserProfile(result.user)
+      }
+    }).catch((err) => {
+      console.error('Redirect sign-in error:', err)
+      toast.error('Sign in failed: ' + (err.message || 'Unknown error'))
+    })
     return onAuthStateChanged(auth, (u) => setUser(u))
   }, [])
 
@@ -2745,15 +2811,17 @@ const App = () => {
 
   const login = async () => {
     try {
-      const res = await signInWithPopup(auth, googleProvider)
-      const cred = GoogleAuthProvider.credentialFromResult(res)
-      const token = cred?.accessToken ?? null
-      if (token) {
-        setGoogleToken(token)
+      const res = await googleSignIn()
+      if (res) {
+        const token = extractGoogleToken(res)
+        if (token) setGoogleToken(token)
+        if (res.user && !settings.name) setSettings(s => ({ ...s, name: res.user.displayName || '' }))
+        await createUserProfile(res.user)
+        toast.success('Signed in with Google')
       }
-      if (res.user && !settings.name) setSettings(s => ({ ...s, name: res.user.displayName || '' }))
-    } catch (err) {
-      toast.error('Sign in failed')
+    } catch (err: any) {
+      console.error('Google sign-in error:', err)
+      toast.error('Sign in failed: ' + (err.message || 'Unknown error'))
     }
   }
 
