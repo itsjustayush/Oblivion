@@ -2567,6 +2567,9 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
               onValueChange={v => upd('clockSize', v[0] / 100)} className="max-w-xs w-48" />
           </Row>
         </Section>
+        <div className="pt-4 border-t border-white/10 text-center text-xs text-white/50 font-medium">
+          Made with love ❤️ by Ayush Bhattacharya
+        </div>
       </div>
     </Panel>
   )
@@ -3012,6 +3015,11 @@ const App = () => {
         {/* Weather Widget */}
         <WeatherWidget />
       </section>
+
+      {/* Bottom Left Corner Attribution */}
+      <div className="fixed bottom-6 left-6 z-[120] text-xs text-white/80 backdrop-blur-xl bg-black/40 px-3.5 py-1.5 rounded-full border border-white/15 shadow-xl pointer-events-auto select-none flex items-center gap-1.5 font-medium">
+        Made with love ❤️ by Ayush Bhattacharya
+      </div>
 
       {/* Quote Pill */}
       <QuotePill />
