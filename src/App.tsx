@@ -2568,7 +2568,7 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
           </Row>
         </Section>
         <div className="pt-4 border-t border-white/10 text-center text-xs text-white/50 font-medium">
-          Made with love ❤️ by Ayush Bhattacharya
+          Made with love ❤️ by <a href="https://github.com/itsjustayush" target="_blank" rel="noopener noreferrer" className="hover:underline text-white/70 hover:text-white transition-colors">Ayush Bhattacharya</a>
         </div>
       </div>
     </Panel>
@@ -2869,10 +2869,10 @@ const App = () => {
 
         {/* Top Fixed Navigation Bar */}
         <nav className="fixed top-0 left-0 right-0 z-[100] flex items-center justify-between p-4 sm:p-6">
-          {/* Brand wordmark without logo */}
-          <div className="flex items-center gap-3 cursor-pointer group" onClick={() => setOpen(null)}>
+          {/* Brand wordmark pointing to repository */}
+          <a href="https://github.com/itsjustayush/oblivion" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 cursor-pointer group">
             <span className="text-white text-2xl font-playfair italic tracking-tight drop-shadow-md hover:text-white/90 transition-colors">Oblivion</span>
-          </div>
+          </a>
 
           {/* Center Glassmorphism Pill Menu */}
           <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-black/40 backdrop-blur-xl border border-white/15 rounded-full px-2 py-1.5 items-center gap-1 shadow-2xl">
@@ -3018,7 +3018,7 @@ const App = () => {
 
       {/* Bottom Left Corner Attribution */}
       <div className="fixed bottom-6 left-6 z-[120] text-xs text-white/80 backdrop-blur-xl bg-black/40 px-3.5 py-1.5 rounded-full border border-white/15 shadow-xl pointer-events-auto select-none flex items-center gap-1.5 font-medium">
-        Made with love ❤️ by Ayush Bhattacharya
+        Made with love ❤️ by <a href="https://github.com/itsjustayush" target="_blank" rel="noopener noreferrer" className="hover:underline text-white transition-colors">Ayush Bhattacharya</a>
       </div>
 
       {/* Quote Pill */}
