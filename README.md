@@ -1,12 +1,10 @@
+<div align="center">
+
 # 🪐 OBLIVION
 
 **A Minimalist, Ambient Focus Space & Personal Productivity Sanctuary**
 
 *Designed for seamless flow state, distraction-free study sessions, ambient soundscapes, and intuitive workflow tracking.*
-
-<img width="1917" height="970" alt="oblivion" src="https://github.com/user-attachments/assets/580ae2d7-0fc4-4d89-b913-be910a1b1984" />
-<div align="center">
-
 
 [![Live Demo](https://img.shields.io/badge/🚀_Live_Demo-oblivionstudy.vercel.app-6366f1?style=for-the-badge)](https://oblivionstudy.vercel.app/)
 
@@ -20,6 +18,8 @@
 [![Vercel](https://img.shields.io/badge/Vercel-000000?style=flat-square&logo=vercel&logoColor=white)](https://vercel.com/)
 
 ---
+
+### 🌐 [Launch Oblivion Live Application](https://oblivionstudy.vercel.app/)
 
 </div>
 
