@@ -1,0 +1,22 @@
+{
+  "name": "Oblivion — Focus & Productivity App",
+  "short_name": "Oblivion",
+  "description": "A minimalist, dark-themed focus timer and analytics dashboard designed for deep work.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#09090b",
+  "theme_color": "#ea580c",
+  "icons": [
+    {
+      "src": "/og-image.png",
+      "sizes": "192x192 512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://i.ibb.co/Pv2vpY9S/og-image.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
