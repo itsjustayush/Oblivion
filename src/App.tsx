@@ -13,7 +13,8 @@ import {
   Check, Sparkles, Quote as QuoteIcon, ChevronRight,
   Navigation, CloudSun, Thermometer, Wind, Droplets, Info,
   BarChart2, Flame, Zap, Brain, LayoutList, Coffee,
-  Pin, PinOff, Palette, ListTodo, History, ArrowUpRight
+  Pin, PinOff, Palette, ListTodo, History, ArrowUpRight,
+  ShieldAlert, Puzzle, BellOff
 } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { Button } from '@/src/components/ui/button'
@@ -23,6 +24,7 @@ import { Switch } from '@/src/components/ui/switch'
 import { Textarea } from '@/src/components/ui/textarea'
 import { toast, Toaster } from 'sonner'
 import { ChangelogView } from '@/src/components/ChangelogView'
+import { ChromeExtensionModal } from '@/src/components/ChromeExtensionModal'
 
 /* ----------------------------- Background Library ---------------------------- */
 const BACKGROUNDS = [
@@ -664,7 +666,7 @@ function CustomCursor() {
 }
 
 /* ----------------------------- Panel ----------------------------- */
-function Panel({ open, onClose, title, icon, children, width = 'max-w-3xl' }: { open: boolean, onClose: () => void, title: string, icon: React.ReactNode, children: React.ReactNode, width?: string }) {
+export function Panel({ open, onClose, title, icon, children, width = 'max-w-3xl' }: { open: boolean, onClose: () => void, title: string, icon: React.ReactNode, children: React.ReactNode, width?: string }) {
   return (
     <AnimatePresence>
       {open && (
@@ -2004,6 +2006,23 @@ function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, sh
   const [isEditing, setIsEditing] = useState(false)
   const [editMin, setEditMin] = useState('')
   const [editSec, setEditSec] = useState('')
+  const [blockNotifications, setBlockNotifications] = useState(() => {
+    try {
+      return localStorage.getItem('oblivion.pomo.block_notifications') !== 'false'
+    } catch {
+      return true
+    }
+  })
+
+  const toggleBlockNotifications = (val: boolean) => {
+    setBlockNotifications(val)
+    try {
+      localStorage.setItem('oblivion.pomo.block_notifications', String(val))
+    } catch {}
+    if (val && Notification && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+      Notification.requestPermission()
+    }
+  }
 
   const startEdit = () => {
     setRunning(false)
@@ -2052,8 +2071,14 @@ function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, sh
   const R = 110
   const C = 2 * Math.PI * R
   return (
-    <Panel open={open} onClose={onClose} title="Pomodoro" icon={<Timer className="h-4 w-4" />} width="max-w-md">
+    <Panel open={open} onClose={onClose} title="Pomodoro & Focus Shield" icon={<Timer className="h-4 w-4" />} width="max-w-md">
       <div className="p-6 flex flex-col items-center">
+        {running && blockNotifications && mode === 'focus' && (
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[10px] uppercase font-bold tracking-widest mb-4 animate-pulse">
+            <ShieldAlert className="h-3.5 w-3.5 text-emerald-400" />
+            <span>Notification Shield Active (DND)</span>
+          </div>
+        )}
         <div className="flex bg-white/5 p-1 rounded-full text-sm">
           {(['focus', 'short', 'long'] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
@@ -2098,7 +2123,20 @@ function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, sh
             <SkipForward className="h-4 w-4 mr-2" /> Skip
           </Button>
         </div>
-        <div className="mt-8 w-full grid grid-cols-3 gap-3 text-center text-xs text-white/60">
+
+        {/* Do Not Disturb Toggle Row */}
+        <div className="mt-6 w-full flex items-center justify-between p-3 rounded-xl bg-white/[0.03] border border-white/10">
+          <div className="flex items-center gap-2.5">
+            <BellOff className="h-4 w-4 text-orange-400" />
+            <div>
+              <div className="text-xs font-semibold text-white">Block Notifications in Focus</div>
+              <div className="text-[10px] text-white/40">Silence alerts while timer is running</div>
+            </div>
+          </div>
+          <Switch checked={blockNotifications} onCheckedChange={toggleBlockNotifications} />
+        </div>
+
+        <div className="mt-6 w-full grid grid-cols-3 gap-3 text-center text-xs text-white/60">
           <DurationField label="Focus" v={focusMin} set={setFocusMin} />
           <DurationField label="Short" v={shortMin} set={setShortMin} />
           <DurationField label="Long" v={longMin} set={setLongMin} />
@@ -2722,8 +2760,8 @@ function Row({ label, children }: { label: string, children: React.ReactNode }) 
     </div>
   )
 }
-interface AppSettings { name: string; showGreeting: boolean; bgId: string; rain: number; blur: number; dim: number; grain: boolean; clockSize: number }
-function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void }) {
+interface AppSettings { name: string; showGreeting: boolean; bgId: string; rain: number; blur: number; dim: number; grain: boolean; clockSize: number; keepAwake: boolean }
+function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog, onOpenExtensionModal }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void }) {
   const upd = (k: keyof AppSettings, v: any) => setSettings({ ...settings, [k]: v })
   return (
     <Panel open={open} onClose={onClose} title="Settings" icon={<SettingsIcon className="h-4 w-4" />} width="max-w-xl">
@@ -2754,6 +2792,11 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
              </Button>
           </div>
         </Section>
+        <Section title="Display & Power">
+          <Row label="Keep Screen Awake (Prevents Sleep)">
+            <Switch checked={settings.keepAwake ?? true} onCheckedChange={v => upd('keepAwake', v)} />
+          </Row>
+        </Section>
         <Section title="Atmosphere">
           <Row label={`Rain intensity · ${settings.rain}%`}>
             <Slider value={[settings.rain]} min={0} max={100} step={1} onValueChange={v => upd('rain', v[0])} className="max-w-xs w-48" />
@@ -2775,6 +2818,19 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
           </Row>
         </Section>
         <div className="pt-4 border-t border-white/10 flex flex-col items-center gap-3">
+          <button
+            onClick={() => {
+              onClose()
+              onOpenExtensionModal()
+            }}
+            className="w-full flex items-center justify-between text-xs text-emerald-400 hover:text-emerald-300 font-bold uppercase tracking-wider transition-all py-2.5 px-4 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 group"
+          >
+            <div className="flex items-center gap-2">
+              <Puzzle className="h-4 w-4 text-emerald-400" />
+              <span>Chrome Popup Extension & DND Shield</span>
+            </div>
+            <ArrowUpRight className="h-4 w-4 text-emerald-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+          </button>
           <button
             onClick={() => {
               onClose()
@@ -2806,6 +2862,7 @@ const DOCK_ITEMS = [
   { id: 'pomo', icon: Timer, label: 'Pomodoro' },
   { id: 'cal', icon: CalendarDays, label: 'Agenda' },
   { id: 'music', icon: Music2, label: 'Music' },
+  { id: 'extension', icon: Puzzle, label: 'Chrome Ext' },
   { id: 'settings', icon: SettingsIcon, label: 'Settings' },
   { id: 'fs', icon: Maximize2, label: 'Fullscreen' },
 ] as const
@@ -2865,7 +2922,7 @@ function QuotePill() {
 /* ----------------------------- App ----------------------------- */
 const DEFAULT_SETTINGS: AppSettings = {
   name: '', showGreeting: true, bgId: 'starry-night',
-  rain: 55, blur: 4, dim: 45, grain: true, clockSize: 1,
+  rain: 55, blur: 4, dim: 45, grain: true, clockSize: 1, keepAwake: true,
 }
 
 const App = () => {
@@ -2896,6 +2953,34 @@ const App = () => {
   const [mounted, setMounted] = useState(false)
 
   const [gEvents, setGEvents] = useState<AppEvent[]>([])
+
+  // Screen Wake Lock API: Prevent display shut off during focus sessions
+  useEffect(() => {
+    let wakeLock: any = null
+    const requestWakeLock = async () => {
+      if ((settings.keepAwake ?? true) && 'wakeLock' in navigator) {
+        try {
+          wakeLock = await (navigator as any).wakeLock.request('screen')
+        } catch {}
+      }
+    }
+
+    requestWakeLock()
+
+    const handleVisibilityChange = () => {
+      if (wakeLock !== null && document.visibilityState === 'visible' && (settings.keepAwake ?? true)) {
+        requestWakeLock()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      if (wakeLock) {
+        wakeLock.release().catch(() => {})
+      }
+    }
+  }, [settings.keepAwake])
 
   // Pomodoro State Lifted
   const [pomoMode, setPomoMode] = useState<'focus' | 'short' | 'long'>('focus')
@@ -3041,7 +3126,7 @@ const App = () => {
   const dispatch = (id: string) => {
     if (id === 'home') setOpen(null)
     else if (id === 'fs') toggleFullscreen()
-    else if (['notes', 'tasks', 'stats', 'pomo', 'cal', 'music', 'settings', 'changelogs'].includes(id)) setOpen(id)
+    else if (['notes', 'tasks', 'stats', 'pomo', 'cal', 'music', 'settings', 'changelogs', 'extension'].includes(id)) setOpen(id)
   }
 
   useEffect(() => {
@@ -3281,7 +3366,8 @@ const App = () => {
       />
       <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
       <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
-      <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} />
+      <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} />
+      <ChromeExtensionModal open={open === 'extension'} onClose={() => setOpen(null)} />
 
       {/* Fullscreen Changelog Page Overlay */}
       <AnimatePresence>

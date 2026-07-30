@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Oblivion Focus & Notification Shield",
+  "version": "1.0.0",
+  "description": "Minimalist focus timer, time tracker, screen keep-awake & notification blocker Chrome popup extension.",
+  "permissions": [
+    "storage",
+    "notifications",
+    "alarms",
+    "activeTab"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Oblivion Focus"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

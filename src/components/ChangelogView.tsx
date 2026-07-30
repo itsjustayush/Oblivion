@@ -27,6 +27,23 @@ export interface ChangelogViewProps {
 
 export const defaultEntries: ChangelogEntry[] = [
   {
+    version: "Version 1.5.0",
+    date: "30 July 2026",
+    title: "Chrome Extension, DND Shield & Social Media Open Graph Preview",
+    description:
+      "Packaged Oblivion as an auto-updating Chrome Extension popup with Do Not Disturb notification blocking, and added Open Graph metadata for rich social previews.",
+    items: [
+      "Auto-Updating Chrome Extension: Built zero-download remote popup wrapper and complete Manifest V3 extension package with keep-awake and DND background service worker.",
+      "Notification Focus Shield: Integrated real-time Do Not Disturb notification suppression toggle directly into the Pomodoro focus timer.",
+      "Open Graph & Social Cards: Added 1200×630 high-definition social media preview branding (oblivion.png) with Open Graph and Twitter Card tags in index.html.",
+      "Interactive Extension Modal: Added quick setup guide and 1-click code copying for manifest.json and popup.html in the main app navigation.",
+    ],
+    button: {
+      url: "https://github.com/itsjustayush/oblivion",
+      text: "View GitHub Repository",
+    },
+  },
+  {
     version: "Version 1.4.0",
     date: "29 July 2026",
     title: "Strict Guest Mode Zero-State & Interactive Analytics",

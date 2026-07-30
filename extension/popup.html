@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Oblivion Focus Extension</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      user-select: none;
+    }
+    body {
+      width: 360px;
+      height: 520px;
+      background-color: #09090b;
+      color: #f4f4f5;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    /* Header */
+    header {
+      padding: 14px 18px;
+      background: rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .brand-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: #f97316;
+      box-shadow: 0 0 10px rgba(249, 115, 22, 0.8);
+    }
+    .brand-title {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: #e4e4e7;
+    }
+    .open-app-btn {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #a1a1aa;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 5px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .open-app-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      color: #ffffff;
+    }
+    /* Main Content */
+    main {
+      flex: 1;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      overflow-y: auto;
+    }
+    /* Mode Selector */
+    .mode-tabs {
+      display: flex;
+      background: rgba(255, 255, 255, 0.04);
+      padding: 4px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .mode-tab {
+      flex: 1;
+      padding: 6px 0;
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      border: none;
+      background: transparent;
+      color: #a1a1aa;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-tab.active {
+      background: #ffffff;
+      color: #09090b;
+      font-weight: 700;
+    }
+    /* Timer Card */
+    .timer-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 20px 16px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      position: relative;
+    }
+    .timer-display {
+      font-size: 52px;
+      font-weight: 700;
+      letter-spacing: -1px;
+      font-variant-numeric: tabular-nums;
+      margin: 8px 0;
+      color: #ffffff;
+      text-shadow: 0 0 20px rgba(255, 255, 255, 0.2);
+    }
+    .shield-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #34d399;
+      background: rgba(52, 211, 153, 0.1);
+      border: 1px solid rgba(52, 211, 153, 0.2);
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+    }
+    .timer-actions {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+    .btn {
+      flex: 1;
+      padding: 10px 0;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      border-radius: 999px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: #ffffff;
+      color: #09090b;
+    }
+    .btn-primary:hover {
+      background: #e4e4e7;
+    }
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #e4e4e7;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+    /* Controls Section */
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+    }
+    .control-label {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .control-title {
+      font-size: 12px;
+      font-weight: 600;
+      color: #f4f4f5;
+    }
+    .control-desc {
+      font-size: 10px;
+      color: #71717a;
+    }
+    /* Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 38px;
+      height: 22px;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(255, 255, 255, 0.15);
+      transition: .3s;
+      border-radius: 22px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s;
+      border-radius: 50%;
+    }
+    input:checked + .slider {
+      background-color: #f97316;
+    }
+    input:checked + .slider:before {
+      transform: translateX(16px);
+    }
+    /* Quick Tasks */
+    .tasks-header {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #71717a;
+      margin-bottom: 6px;
+    }
+    .task-input-box {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .task-input {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: white;
+      outline: none;
+    }
+    .task-input:focus {
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    .add-task-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      color: white;
+      padding: 0 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .task-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 110px;
+      overflow-y: auto;
+    }
+    .task-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    .task-item.completed {
+      opacity: 0.5;
+      text-decoration: line-through;
+    }
+    .task-checkbox {
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <div class="brand-dot"></div>
+      <div class="brand-title">Oblivion Focus</div>
+    </div>
+    <button id="openAppBtn" class="open-app-btn">Open Web App ↗</button>
+  </header>
+
+  <main>
+    <div class="mode-tabs">
+      <button class="mode-tab active" data-mode="focus">Focus (25m)</button>
+      <button class="mode-tab" data-mode="short">Short (5m)</button>
+      <button class="mode-tab" data-mode="long">Long (15m)</button>
+    </div>
+
+    <div class="timer-card">
+      <div id="shieldBadge" class="shield-badge">
+        <span>🛡️</span> Notification Shield Active
+      </div>
+      <div id="timerDisplay" class="timer-display">25:00</div>
+      <div class="timer-actions">
+        <button id="toggleBtn" class="btn btn-primary">Start Focus</button>
+        <button id="resetBtn" class="btn btn-secondary">Reset</button>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <div class="control-title">Block All Notifications</div>
+        <div class="control-desc">Silence browser notifications while focused</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="blockNotificationsToggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div class="control-row">
+      <div class="control-label">
+        <div class="control-title">Keep Screen Awake</div>
+        <div class="control-desc">Prevent display from going to sleep</div>
+      </div>
+      <label class="switch">
+        <input type="checkbox" id="keepAwakeToggle" checked>
+        <span class="slider"></span>
+      </label>
+    </div>
+
+    <div>
+      <div class="tasks-header">Quick Focus Tasks</div>
+      <div class="task-input-box">
+        <input type="text" id="newTaskInput" class="task-input" placeholder="What are you working on?">
+        <button id="addTaskBtn" class="add-task-btn">Add</button>
+      </div>
+      <div id="taskList" class="task-list">
+        <!-- Injected dynamically -->
+      </div>
+    </div>
+  </main>
+
+  <script src="popup.js"></script>
+</body>
+</html>

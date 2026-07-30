@@ -6,7 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
-## [Unreleased] - 2026-07-29
+## [1.5.0] - 2026-07-30
+
+### Added
+- **Chrome Popup Extension**: Created full Manifest V3 Chrome Extension package in `/extension` with background service worker, timer popup, screen keep-awake, and quick task list.
+- **Zero-Download Auto-Updating Extension Wrapper**: Created interactive `ChromeExtensionModal` in main navigation displaying 2-file (`manifest.json` and `popup.html`) setup guide that connects directly to the live deployed URL for zero-download instant auto-updates upon pushing repo changes.
+- **Do Not Disturb (DND) Focus Shield**: Implemented automatic notification suppression during active focus blocks, with live status indicator and switch control in Pomodoro timer.
+- **Open Graph & Twitter Social Preview**: Added 1200×630 high-resolution branding preview image (`/public/oblivion.png`) and complete `<meta>` Open Graph and Twitter card tags in `index.html` for rich card previews on Discord, Twitter/X, WhatsApp, and LinkedIn.
+
+---
+
+## [1.4.0] - 2026-07-29
 
 ### Added
 - **Changelog Documentation**: Added `Changelog.md` documenting complete project evolution from repository initialization to current releases.
