@@ -3,20 +3,50 @@
   "short_name": "Oblivion",
   "description": "A minimalist, dark-themed focus timer and analytics dashboard designed for deep work.",
   "start_url": "/",
+  "id": "/",
   "display": "standalone",
   "background_color": "#09090b",
   "theme_color": "#ea580c",
   "icons": [
     {
-      "src": "/og-image.png",
-      "sizes": "192x192 512x512",
+      "src": "https://i.ibb.co/Pv2vpY9S/og-image.png",
+      "sizes": "800x800",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
       "src": "https://i.ibb.co/Pv2vpY9S/og-image.png",
-      "sizes": "512x512",
-      "type": "image/png"
+      "sizes": "800x800",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/og-image.png",
+      "sizes": "800x800",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/og-image.png",
+      "sizes": "800x800",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "https://i.ibb.co/kV8m3MSS/oblivion.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Oblivion Focus Workspace Dashboard"
+    },
+    {
+      "src": "https://i.ibb.co/kV8m3MSS/oblivion.png",
+      "sizes": "1200x630",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Oblivion Focus Timer Mobile"
     }
   ]
 }

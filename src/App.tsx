@@ -25,6 +25,8 @@ import { Textarea } from '@/src/components/ui/textarea'
 import { toast, Toaster } from 'sonner'
 import { ChangelogView } from '@/src/components/ChangelogView'
 import { ChromeExtensionModal } from '@/src/components/ChromeExtensionModal'
+import { CookieBanner } from '@/src/components/CookieBanner'
+import { Cookie } from 'lucide-react'
 
 /* ----------------------------- Background Library ---------------------------- */
 const BACKGROUNDS = [
@@ -2761,7 +2763,7 @@ function Row({ label, children }: { label: string, children: React.ReactNode }) 
   )
 }
 interface AppSettings { name: string; showGreeting: boolean; bgId: string; rain: number; blur: number; dim: number; grain: boolean; clockSize: number; keepAwake: boolean }
-function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog, onOpenExtensionModal }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void }) {
+function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog, onOpenExtensionModal, onOpenCookieModal }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void, onOpenCookieModal: () => void }) {
   const upd = (k: keyof AppSettings, v: any) => setSettings({ ...settings, [k]: v })
   return (
     <Panel open={open} onClose={onClose} title="Settings" icon={<SettingsIcon className="h-4 w-4" />} width="max-w-xl">
@@ -2830,6 +2832,19 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
               <span>Chrome Popup Extension & DND Shield</span>
             </div>
             <ArrowUpRight className="h-4 w-4 text-emerald-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+          </button>
+          <button
+            onClick={() => {
+              onClose()
+              onOpenCookieModal()
+            }}
+            className="w-full flex items-center justify-between text-xs text-sky-400 hover:text-sky-300 font-bold uppercase tracking-wider transition-all py-2.5 px-4 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 border border-sky-500/20 group"
+          >
+            <div className="flex items-center gap-2">
+              <Cookie className="h-4 w-4 text-sky-400" />
+              <span>Cookie & Privacy Preferences</span>
+            </div>
+            <ArrowUpRight className="h-4 w-4 text-sky-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
           </button>
           <button
             onClick={() => {
@@ -2948,6 +2963,7 @@ const App = () => {
 
   const [settings, setSettings] = useSynced<AppSettings>('oblivion.settings', DEFAULT_SETTINGS, user)
   const [open, setOpen] = useState<string | null>(null)
+  const [cookieModalOpen, setCookieModalOpen] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [playlistId, setPlaylistId] = useState(PLAYLISTS[0].id)
   const [mounted, setMounted] = useState(false)
@@ -3366,8 +3382,9 @@ const App = () => {
       />
       <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
       <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
-      <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} />
+      <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} />
       <ChromeExtensionModal open={open === 'extension'} onClose={() => setOpen(null)} />
+      <CookieBanner openModal={cookieModalOpen} onCloseModal={() => setCookieModalOpen(false)} />
 
       {/* Fullscreen Changelog Page Overlay */}
       <AnimatePresence>
