@@ -26,6 +26,7 @@ import { toast, Toaster } from 'sonner'
 import { ChangelogView } from '@/src/components/ChangelogView'
 import { ChromeExtensionModal } from '@/src/components/ChromeExtensionModal'
 import { CookieBanner } from '@/src/components/CookieBanner'
+import { CanvasNotesWorkspacePanel } from '@/src/components/CanvasNotesWorkspace'
 import { Cookie } from 'lucide-react'
 
 /* ----------------------------- Background Library ---------------------------- */
@@ -47,12 +48,12 @@ const PLAYLISTS = [
   { id: '37i9dQZF1DX3Ogo9pFvBkY', name: 'Ambient Study' },
 ]
 
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, Timestamp, addDoc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
-const app = initializeApp(firebaseConfig);
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId || 'ai-studio-0d0d80dd-7827-43ff-af09-0e4f6ee44d44';
 const db = getFirestore(app, firestoreDbId);
 const auth = getAuth(app);
@@ -3158,6 +3159,7 @@ const App = () => {
       const k = e.key.toLowerCase()
       if (k === 'escape') return setOpen(null)
       if (k === 'n') setOpen('notes')
+      else if (k === 'v') setOpen('canvas')
       else if (k === 't') setOpen('tasks')
       else if (k === 's') setOpen('stats')
       else if (k === 'p') setOpen('pomo')
@@ -3222,6 +3224,12 @@ const App = () => {
               className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'notes' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
             >
               Notes
+            </button>
+            <button
+              onClick={() => setOpen('canvas')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'canvas' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+            >
+              Canvas
             </button>
             <button
               onClick={() => setOpen('music')}
@@ -3360,6 +3368,7 @@ const App = () => {
         pomoMode={pomoMode}
       />
       <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
+      <CanvasNotesWorkspacePanel open={open === 'canvas'} onClose={() => setOpen(null)} user={user} />
       <ChecklistPanel open={open === 'tasks'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
       <PomodoroPanel 
         open={open === 'pomo'} 
