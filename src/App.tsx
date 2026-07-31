@@ -23,11 +23,12 @@ import { Slider } from '@/src/components/ui/slider'
 import { Switch } from '@/src/components/ui/switch'
 import { Textarea } from '@/src/components/ui/textarea'
 import { toast, Toaster } from 'sonner'
-import { ChangelogView } from '@/src/components/ChangelogView'
-import { ChromeExtensionModal } from '@/src/components/ChromeExtensionModal'
-import { CookieBanner } from '@/src/components/CookieBanner'
-import { CanvasNotesWorkspacePanel } from '@/src/components/CanvasNotesWorkspace'
 import { Cookie } from 'lucide-react'
+
+const ChangelogView = React.lazy(() => import('@/src/components/ChangelogView').then(m => ({ default: m.ChangelogView })))
+const ChromeExtensionModal = React.lazy(() => import('@/src/components/ChromeExtensionModal').then(m => ({ default: m.ChromeExtensionModal })))
+const CookieBanner = React.lazy(() => import('@/src/components/CookieBanner').then(m => ({ default: m.CookieBanner })))
+const CanvasNotesWorkspacePanel = React.lazy(() => import('@/src/components/CanvasNotesWorkspace').then(m => ({ default: m.CanvasNotesWorkspacePanel })))
 
 /* ----------------------------- Background Library ---------------------------- */
 const BACKGROUNDS = [
@@ -343,21 +344,29 @@ function WeatherWidget() {
   }, []);
 
   useEffect(() => {
+    let timer: NodeJS.Timeout
     const initWeather = () => {
       if ("geolocation" in navigator) {
         navigator.geolocation.getCurrentPosition(
           (pos) => fetchWeather(pos.coords.latitude, pos.coords.longitude),
-          () => fetchWeather(22.5726, 88.3639), // Default to Kolkata
-          { enableHighAccuracy: true, timeout: 10000 }
+          () => fetchWeather(22.5726, 88.3639), // Default location
+          { enableHighAccuracy: false, timeout: 8000 }
         );
       } else {
         fetchWeather(22.5726, 88.3639);
       }
     };
 
-    initWeather();
+    // Defer initial weather fetch by 1.2s to prioritize layout rendering
+    timer = setTimeout(() => {
+      initWeather();
+    }, 1200);
+
     const interval = setInterval(initWeather, 1800000); // 30 minutes
-    return () => clearInterval(interval);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
   }, [fetchWeather]);
 
   if (!data) return (
@@ -2605,6 +2614,7 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
   user: User | null
 }) {
   const [isConnected, setIsConnected] = useState(false)
+  const [playerActivated, setPlayerActivated] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -2612,6 +2622,12 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
       setIsConnected(snap.exists())
     }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/integrations/spotify`))
   }, [user])
+
+  useEffect(() => {
+    if (open && !playerActivated) {
+      setPlayerActivated(true)
+    }
+  }, [open, playerActivated])
 
   const activePlaylist = PLAYLISTS.find(p => p.id === playlistId) || PLAYLISTS[0]
 
@@ -2642,6 +2658,7 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
           <button 
             onClick={onClose} 
             className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
+            aria-label="Close Spotify Panel"
           >
             <X className="h-4 w-4" />
           </button>
@@ -2669,7 +2686,10 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
                   return (
                     <button 
                       key={p.id} 
-                      onClick={() => setPlaylistId(p.id)}
+                      onClick={() => {
+                        setPlaylistId(p.id)
+                        if (!playerActivated) setPlayerActivated(true)
+                      }}
                       className={`group relative p-4 rounded-2xl transition-all border flex items-center justify-between text-left overflow-hidden ${
                         isSelected 
                           ? 'bg-white text-black border-white shadow-xl shadow-white/10 scale-[1.01]' 
@@ -2715,7 +2735,7 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
             </div>
           </div>
 
-          {/* Right Column: Spotify Window Embed (Persistent in DOM) */}
+          {/* Right Column: Spotify Window Embed (Facade / Lazy Loaded) */}
           <div className="w-full md:w-1/2 p-6 md:p-8 bg-black/40 flex flex-col h-full min-h-[400px]">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
@@ -2726,17 +2746,30 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
             </div>
 
             <div className="flex-1 w-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-zinc-950 relative min-h-[350px]">
-              <iframe 
-                key={playlistId} 
-                title="Spotify Player Window"
-                src={`https://open.spotify.com/embed/playlist/${playlistId}?utm_source=oblivion&theme=0`}
-                width="100%" 
-                height="100%" 
-                frameBorder="0"
-                allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
-                loading="lazy" 
-                className="w-full h-full rounded-2xl"
-              />
+              {playerActivated ? (
+                <iframe 
+                  key={playlistId} 
+                  title="Spotify Player Window"
+                  src={`https://open.spotify.com/embed/playlist/${playlistId}?utm_source=oblivion&theme=0`}
+                  width="100%" 
+                  height="100%" 
+                  frameBorder="0"
+                  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
+                  loading="lazy" 
+                  className="w-full h-full rounded-2xl"
+                />
+              ) : (
+                <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-black/60">
+                  <Music2 className="h-12 w-12 text-[#e8702a] mb-3 animate-pulse" />
+                  <p className="text-sm font-semibold text-white mb-2">Focus Playlist Facade</p>
+                  <button 
+                    onClick={() => setPlayerActivated(true)}
+                    className="px-5 py-2.5 rounded-full bg-[#e8702a] hover:bg-[#d2611f] text-white text-xs font-bold uppercase tracking-wider transition-all shadow-lg"
+                  >
+                    Start Spotify Player
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -2922,9 +2955,21 @@ function Dock({ onAction, isFullscreen }: { onAction: (id: string) => void, isFu
 }
 
 /* ----------------------------- Quote Pill ----------------------------- */
+const CURATED_QUOTES = [
+  { q: "Deep work is the ability to focus without distraction on a cognitively demanding task.", a: "Cal Newport" },
+  { q: "Focus is a muscle. The more you practice it, the stronger it gets.", a: "Anonymous" },
+  { q: "Concentrate all your thoughts upon the work at hand. The sun's rays do not burn until brought to a focus.", a: "Alexander Graham Bell" },
+  { q: "Simplicity boils down to two steps: Eliminate the nonessential, focus on what matters.", a: "Leo Babauta" },
+  { q: "Action is the foundational key to all success.", a: "Pablo Picasso" },
+  { q: "Your mind is for having ideas, not holding them.", a: "David Allen" }
+]
+
 function QuotePill() {
   const [q, setQ] = useState<{ q: string; a: string } | null>(null)
-  useEffect(() => { fetch('/api/quotes').then(r => r.json()).then(setQ).catch(() => {}) }, [])
+  useEffect(() => {
+    const randomQuote = CURATED_QUOTES[Math.floor(Math.random() * CURATED_QUOTES.length)]
+    setQ(randomQuote)
+  }, [])
   if (!q) return null
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 1.2, duration: 1 }}
@@ -3356,59 +3401,61 @@ const App = () => {
       <QuotePill />
 
       {/* Panels */}
-      <StatsPanel 
-        open={open === 'stats'} 
-        onClose={() => setOpen(null)} 
-        user={user} 
-        pomoCycles={pomoCycles} 
-        setPomoCycles={setPomoCycles} 
-        pomoRunning={pomoRunning}
-        pomoRemaining={pomoRemaining}
-        pomoTotal={pomoTotal}
-        pomoMode={pomoMode}
-      />
-      <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
-      <CanvasNotesWorkspacePanel open={open === 'canvas'} onClose={() => setOpen(null)} user={user} />
-      <ChecklistPanel open={open === 'tasks'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
-      <PomodoroPanel 
-        open={open === 'pomo'} 
-        onClose={() => setOpen(null)}
-        mode={pomoMode}
-        setMode={setPomoMode}
-        focusMin={pomoFocusMin}
-        setFocusMin={setPomoFocusMin}
-        shortMin={pomoShortMin}
-        setShortMin={setPomoShortMin}
-        longMin={pomoLongMin}
-        setLongMin={setPomoLongMin}
-        running={pomoRunning}
-        setRunning={setPomoRunning}
-        remaining={pomoRemaining}
-        setRemaining={setPomoRemaining}
-        total={pomoTotal}
-        cycles={pomoCycles}
-        onComplete={handlePomoComplete}
-      />
-      <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
-      <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
-      <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} />
-      <ChromeExtensionModal open={open === 'extension'} onClose={() => setOpen(null)} />
-      <CookieBanner openModal={cookieModalOpen} onCloseModal={() => setCookieModalOpen(false)} />
+      <React.Suspense fallback={null}>
+        <StatsPanel 
+          open={open === 'stats'} 
+          onClose={() => setOpen(null)} 
+          user={user} 
+          pomoCycles={pomoCycles} 
+          setPomoCycles={setPomoCycles} 
+          pomoRunning={pomoRunning}
+          pomoRemaining={pomoRemaining}
+          pomoTotal={pomoTotal}
+          pomoMode={pomoMode}
+        />
+        <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
+        {open === 'canvas' && <CanvasNotesWorkspacePanel open={open === 'canvas'} onClose={() => setOpen(null)} user={user} />}
+        <ChecklistPanel open={open === 'tasks'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
+        <PomodoroPanel 
+          open={open === 'pomo'} 
+          onClose={() => setOpen(null)}
+          mode={pomoMode}
+          setMode={setPomoMode}
+          focusMin={pomoFocusMin}
+          setFocusMin={setPomoFocusMin}
+          shortMin={pomoShortMin}
+          setShortMin={setPomoShortMin}
+          longMin={pomoLongMin}
+          setLongMin={setPomoLongMin}
+          running={pomoRunning}
+          setRunning={setPomoRunning}
+          remaining={pomoRemaining}
+          setRemaining={setPomoRemaining}
+          total={pomoTotal}
+          cycles={pomoCycles}
+          onComplete={handlePomoComplete}
+        />
+        <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
+        <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
+        <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} />
+        {open === 'extension' && <ChromeExtensionModal open={open === 'extension'} onClose={() => setOpen(null)} />}
+        <CookieBanner openModal={cookieModalOpen} onCloseModal={() => setCookieModalOpen(false)} />
 
-      {/* Fullscreen Changelog Page Overlay */}
-      <AnimatePresence>
-        {open === 'changelogs' && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 20 }}
-            transition={{ duration: 0.25, ease: 'easeOut' }}
-            className="fixed inset-0 z-[200] bg-zinc-950 overflow-y-auto"
-          >
-            <ChangelogView onBack={() => setOpen('settings')} />
-          </motion.div>
-        )}
-      </AnimatePresence>
+        {/* Fullscreen Changelog Page Overlay */}
+        <AnimatePresence>
+          {open === 'changelogs' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ duration: 0.25, ease: 'easeOut' }}
+              className="fixed inset-0 z-[200] bg-zinc-950 overflow-y-auto"
+            >
+              <ChangelogView onBack={() => setOpen('settings')} />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </React.Suspense>
 
       {/* Dedicated Fullscreen Toggle Button at Bottom Right */}
       <button
