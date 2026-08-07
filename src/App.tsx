@@ -8,13 +8,13 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
-  Home, StickyNote, ListChecks, Timer, CalendarDays, Music2, Settings as SettingsIcon,
+  Home, StickyNote, ListChecks, Timer, CalendarDays, CalendarDays as Calendar, Music2, Settings as SettingsIcon,
   Maximize2, Minimize2, Plus, Trash2, X, Search, Play, Pause, RotateCcw, SkipForward,
   Check, Sparkles, Quote as QuoteIcon, ChevronRight,
   Navigation, CloudSun, Thermometer, Wind, Droplets, Info,
   BarChart2, Flame, Zap, Brain, LayoutList, Coffee,
   Pin, PinOff, Palette, ListTodo, History, ArrowUpRight,
-  ShieldAlert, Puzzle, BellOff
+  ShieldAlert, Puzzle, BellOff, PenTool
 } from 'lucide-react'
 import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { Button } from '@/src/components/ui/button'
@@ -24,6 +24,7 @@ import { Switch } from '@/src/components/ui/switch'
 import { Textarea } from '@/src/components/ui/textarea'
 import { toast, Toaster } from 'sonner'
 import { Cookie } from 'lucide-react'
+import { useResponsiveLayout } from './hooks/useResponsiveLayout'
 
 const ChangelogView = React.lazy(() => import('@/src/components/ChangelogView').then(m => ({ default: m.ChangelogView })))
 const ChromeExtensionModal = React.lazy(() => import('@/src/components/ChromeExtensionModal').then(m => ({ default: m.ChromeExtensionModal })))
@@ -722,7 +723,7 @@ function StatCard({ label, value, icon, color }: { label: string, value: string,
         </div>
       </div>
       <div className="absolute top-0 right-0 -mr-6 -mt-6 opacity-10 group-hover:opacity-20 transition-opacity">
-        {React.cloneElement(icon as React.ReactElement, { size: 100 })}
+        {React.cloneElement(icon as React.ReactElement<{ size?: number }>, { size: 100 })}
       </div>
     </div>
   )
@@ -2796,8 +2797,258 @@ function Row({ label, children }: { label: string, children: React.ReactNode }) 
     </div>
   )
 }
-interface AppSettings { name: string; showGreeting: boolean; bgId: string; rain: number; blur: number; dim: number; grain: boolean; clockSize: number; keepAwake: boolean }
-function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog, onOpenExtensionModal, onOpenCookieModal }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void, onOpenCookieModal: () => void }) {
+interface AppSettings { name: string; showGreeting: boolean; bgId: string; rain: number; blur: number; dim: number; grain: boolean; clockSize: number; keepAwake: boolean; waterReminder?: boolean; waterIntervalMin?: number; waterDailyGoal?: number }
+
+/* ----------------------------- Water Break Hydration Reminder Modal ----------------------------- */
+function WaterBreakModal({
+  open,
+  onClose,
+  waterCount,
+  setWaterCount,
+  goal,
+  intervalMin,
+  onlineSeconds,
+  onSnooze
+}: {
+  open: boolean
+  onClose: () => void
+  waterCount: number
+  setWaterCount: React.Dispatch<React.SetStateAction<number>>
+  goal: number
+  intervalMin: number
+  onlineSeconds: number
+  onSnooze: (mins: number) => void
+}) {
+  if (!open) return null
+
+  const intervalSec = (intervalMin || 30) * 60
+  const nextReminderSecs = intervalSec - (onlineSeconds % intervalSec)
+
+  const drinkWater = () => {
+    setWaterCount(c => c + 1)
+    toast.success('Glass of water logged! 💧 Hydration boost recorded.', {
+      icon: '🥛'
+    })
+    onClose()
+  }
+
+  const snooze = () => {
+    onSnooze(10)
+    toast('Reminder snoozed for 10 minutes ⏰', { icon: '⏳' })
+    onClose()
+  }
+
+  const requestNotif = () => {
+    if (typeof Notification !== 'undefined') {
+      Notification.requestPermission().then(p => {
+        if (p === 'granted') toast.success('Desktop water popup notifications enabled!')
+      })
+    }
+  }
+
+  const progressPct = Math.min(100, Math.round((waterCount / (goal || 8)) * 100))
+
+  // Workday Hydration Dynamic Schedule Calculation
+  const now = new Date()
+  const currentHour = now.getHours() + now.getMinutes() / 60
+  const workdayStart = 9 // 9 AM
+  const workdayEnd = 17  // 5 PM (8 hour standard workday)
+  const totalWorkHours = 8
+
+  const elapsedHours = Math.max(0, Math.min(totalWorkHours, currentHour - workdayStart))
+  const workdayElapsedRatio = elapsedHours / totalWorkHours
+  const expectedGlassesByNow = Math.min(goal || 8, Math.round(workdayElapsedRatio * (goal || 8)))
+  const remainingGlasses = Math.max(0, (goal || 8) - waterCount)
+  const glassesBehind = Math.max(0, expectedGlassesByNow - waterCount)
+
+  let hydrationAdvice = ''
+  if (waterCount >= (goal || 8)) {
+    hydrationAdvice = `🎉 Goal reached! You've logged 100% (${waterCount}/${goal || 8} glasses) today!`
+  } else if (currentHour < workdayStart) {
+    hydrationAdvice = `🌅 Early start! You have ${remainingGlasses} glass(es) left for today's goal.`
+  } else if (currentHour >= workdayEnd) {
+    hydrationAdvice = `🌙 Workday complete! Logged ${waterCount}/${goal || 8} glasses (${remainingGlasses} glass(es) remaining).`
+  } else if (glassesBehind > 0) {
+    hydrationAdvice = `⏰ You are ${glassesBehind} glass${glassesBehind > 1 ? 'es' : ''} behind schedule for this time of day (${expectedGlassesByNow}/${goal || 8} expected by now). Sip water!`
+  } else {
+    hydrationAdvice = `✨ Great rhythm! On pace with ${waterCount}/${goal || 8} glasses logged (${expectedGlassesByNow} expected by now).`
+  }
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0, scale: 0.9, y: 30 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.9, y: 30 }}
+        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+        className="fixed bottom-6 right-6 z-[280] w-[92%] max-w-sm p-6 rounded-3xl bg-zinc-950/95 backdrop-blur-2xl border border-sky-500/30 shadow-2xl shadow-sky-950/80 text-white pointer-events-auto"
+      >
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <div className="relative h-11 w-11 rounded-2xl bg-sky-500/20 text-sky-400 flex items-center justify-center border border-sky-400/40 shadow-inner">
+              <Droplets className="h-6 w-6 animate-bounce text-sky-400" />
+              <span className="absolute -top-1 -right-1 flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-sky-500"></span>
+              </span>
+            </div>
+            <div>
+              <h4 className="text-base font-bold text-white tracking-tight">Water Break Reminder!</h4>
+              <p className="text-[11px] text-sky-300/80 font-medium flex items-center gap-1.5 flex-wrap">
+                <span>Active online for {intervalMin} mins</span>
+                <span>·</span>
+                <span className="font-mono text-sky-200 bg-sky-950/80 px-1.5 py-0.5 rounded border border-sky-500/30">
+                  next reminder in: {nextReminderSecs}s
+                </span>
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-full text-white/40 hover:text-white hover:bg-white/10 transition-colors" aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Dynamic Advice Message */}
+        <div className="mb-4 p-3 rounded-xl bg-sky-950/50 border border-sky-500/20 text-xs text-sky-200 leading-relaxed font-medium">
+          {hydrationAdvice}
+        </div>
+
+        <div className="p-3.5 rounded-2xl bg-sky-500/10 border border-sky-500/20 mb-4">
+          <div className="flex items-center justify-between text-xs font-semibold text-sky-200 mb-2">
+            <span className="flex items-center gap-1.5">
+              <Droplets className="h-3.5 w-3.5 text-sky-400" /> Hydration Progress
+            </span>
+            <span className="font-mono">{waterCount} / {goal || 8} Glasses ({progressPct}%)</span>
+          </div>
+          <div className="w-full bg-black/40 h-2.5 rounded-full overflow-hidden p-0.5 border border-sky-500/20">
+            <motion.div
+              className="bg-gradient-to-r from-sky-500 to-cyan-400 h-full rounded-full shadow-md"
+              initial={{ width: 0 }}
+              animate={{ width: `${progressPct}%` }}
+              transition={{ duration: 0.6 }}
+            />
+          </div>
+          <div className="flex justify-between items-center mt-2 text-[10px] text-sky-300/70 font-mono">
+            <span>Workday Pace: {expectedGlassesByNow}/{goal || 8} expected</span>
+            <span>{remainingGlasses} glass(es) left</span>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-2">
+          <Button
+            onClick={drinkWater}
+            className="w-full bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs py-2.5 rounded-xl shadow-lg shadow-sky-600/30 border border-sky-400/40 flex items-center justify-center gap-2"
+          >
+            <Droplets className="h-4 w-4" /> Log Glass of Water (+1 🥛)
+          </Button>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="outline"
+              onClick={snooze}
+              className="w-full bg-white/5 hover:bg-white/10 text-white/80 border-white/15 text-xs py-2 rounded-xl"
+            >
+              Snooze 10m ⏰
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={onClose}
+              className="w-full text-white/50 hover:text-white text-xs py-2"
+            >
+              Dismiss
+            </Button>
+          </div>
+
+          {typeof Notification !== 'undefined' && Notification.permission !== 'granted' && (
+            <button
+              onClick={requestNotif}
+              className="text-[10px] text-sky-400/80 hover:text-sky-300 text-center mt-1 underline decoration-dotted"
+            >
+              Enable browser popup notifications 🔔
+            </button>
+          )}
+        </div>
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+/* ----------------------------- Bento Grid Condensed Nav Modal ----------------------------- */
+function BentoNavModal({
+  open,
+  onClose,
+  onSelect
+}: {
+  open: boolean
+  onClose: () => void
+  onSelect: (key: string) => void
+}) {
+  if (!open) return null
+
+  const items = [
+    { key: 'pomo', title: 'Pomodoro', desc: 'Timer & Focus Cycles', icon: Timer, color: 'from-orange-500/20 to-amber-500/10 border-orange-500/30 text-orange-400' },
+    { key: 'tasks', title: 'Tasks', desc: 'TodoList & Priorities', icon: ListChecks, color: 'from-blue-500/20 to-indigo-500/10 border-blue-500/30 text-blue-400' },
+    { key: 'cal', title: 'Calendar', desc: 'Google Calendar Sync', icon: Calendar, color: 'from-purple-500/20 to-pink-500/10 border-purple-500/30 text-purple-400' },
+    { key: 'notes', title: 'Notes', desc: 'Markdown & Scratchpad', icon: StickyNote, color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-400' },
+    { key: 'canvas', title: 'Canvas', desc: 'Visual Node Flow', icon: PenTool, color: 'from-cyan-500/20 to-sky-500/10 border-cyan-500/30 text-cyan-400' },
+    { key: 'music', title: 'Music', desc: 'Spotify Lofi Player', icon: Music2, color: 'from-green-500/20 to-emerald-500/10 border-green-500/30 text-green-400' },
+    { key: 'stats', title: 'Stats', desc: 'Productivity Analytics', icon: BarChart2, color: 'from-amber-500/20 to-yellow-500/10 border-amber-500/30 text-amber-400' },
+    { key: 'settings', title: 'Settings', desc: 'App & Audio Controls', icon: SettingsIcon, color: 'from-rose-500/20 to-red-500/10 border-rose-500/30 text-rose-400' },
+  ]
+
+  return (
+    <AnimatePresence>
+      <div className="fixed inset-0 z-[250] bg-black/70 backdrop-blur-xl flex items-center justify-center p-4">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.95 }}
+          className="w-full max-w-lg p-6 rounded-3xl bg-zinc-950/90 border border-white/15 shadow-2xl text-white"
+        >
+          <div className="flex items-center justify-between mb-5">
+            <div className="flex items-center gap-2">
+              <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                <SettingsIcon className="h-5 w-5 animate-spin-slow" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-white tracking-tight">Navigation Bento</h3>
+                <p className="text-xs text-white/50">Select a tool to open module</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-2 rounded-full hover:bg-white/10 text-white/60 hover:text-white">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            {items.map((item) => {
+              const Icon = item.icon
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => {
+                    onSelect(item.key)
+                    onClose()
+                  }}
+                  className={`group relative p-4 rounded-2xl bg-gradient-to-br ${item.color} border text-left transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <Icon className="h-5 w-5" />
+                    <span className="opacity-0 group-hover:opacity-100 transition-opacity text-xs text-white/60">→</span>
+                  </div>
+                  <div className="font-bold text-sm text-white tracking-tight">{item.title}</div>
+                  <div className="text-[11px] text-white/60 font-normal">{item.desc}</div>
+                </button>
+              )
+            })}
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  )
+}
+
+function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog, onOpenExtensionModal, onOpenCookieModal, onTestWater }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void, onOpenCookieModal: () => void, onTestWater: () => void }) {
   const upd = (k: keyof AppSettings, v: any) => setSettings({ ...settings, [k]: v })
   return (
     <Panel open={open} onClose={onClose} title="Settings" icon={<SettingsIcon className="h-4 w-4" />} width="max-w-xl">
@@ -2827,6 +3078,27 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
                 <Music2 className="h-3.5 w-3.5 mr-2" /> Spotify
              </Button>
           </div>
+        </Section>
+        <Section title="Hydration & Health Breaks">
+          <Row label="Water Break Reminder (Active Time)">
+            <Switch checked={settings.waterReminder ?? true} onCheckedChange={v => upd('waterReminder', v)} />
+          </Row>
+          {(settings.waterReminder ?? true) && (
+            <>
+              <Row label={`Reminder Interval · ${settings.waterIntervalMin || 30} mins`}>
+                <Slider value={[settings.waterIntervalMin || 30]} min={10} max={90} step={5} onValueChange={v => upd('waterIntervalMin', v[0])} className="max-w-xs w-48" />
+              </Row>
+              <Row label={`Daily Goal · ${settings.waterDailyGoal || 8} Glasses`}>
+                <Slider value={[settings.waterDailyGoal || 8]} min={4} max={16} step={1} onValueChange={v => upd('waterDailyGoal', v[0])} className="max-w-xs w-48" />
+              </Row>
+              <div className="pt-2 flex items-center justify-between border-t border-white/5">
+                <span className="text-xs text-sky-300/80">Trigger popup after interval</span>
+                <Button variant="outline" size="sm" onClick={onTestWater} className="text-xs bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30">
+                  <Droplets className="h-3.5 w-3.5 mr-1" /> Test Water Reminder
+                </Button>
+              </div>
+            </>
+          )}
         </Section>
         <Section title="Display & Power">
           <Row label="Keep Screen Awake (Prevents Sleep)">
@@ -2984,9 +3256,11 @@ function QuotePill() {
 const DEFAULT_SETTINGS: AppSettings = {
   name: '', showGreeting: true, bgId: 'starry-night',
   rain: 55, blur: 4, dim: 45, grain: true, clockSize: 1, keepAwake: true,
+  waterReminder: true, waterIntervalMin: 30, waterDailyGoal: 8,
 }
 
 const App = () => {
+  const { isMobile, isTablet, isDesktop, showCenterPill, panelWidthClass } = useResponsiveLayout()
   const [user, setUser] = useState<User | null>(null)
   const [googleToken, setGoogleTokenState] = useState<string | null>(() => {
     try {
@@ -3015,6 +3289,43 @@ const App = () => {
   const [mounted, setMounted] = useState(false)
 
   const [gEvents, setGEvents] = useState<AppEvent[]>([])
+
+  // Water Hydration Tracker & Reminder State
+  const [waterCount, setWaterCount] = useLocal<number>(
+    `oblivion_water_${new Date().toISOString().split('T')[0]}`,
+    0
+  )
+  const [onlineSeconds, setOnlineSeconds] = useState(0)
+  const [showWaterReminder, setShowWaterReminder] = useState(false)
+  const [snoozeUntil, setSnoozeUntil] = useState<number | null>(null)
+  const [showBentoNav, setShowBentoNav] = useState(false)
+
+  // Track active online seconds on site
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setOnlineSeconds(s => s + 1)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [])
+
+  // Water interval checker
+  useEffect(() => {
+    if (settings.waterReminder === false) return
+    const intervalSec = (settings.waterIntervalMin || 30) * 60
+    if (onlineSeconds > 0 && onlineSeconds % intervalSec === 0) {
+      if (!snoozeUntil || Date.now() > snoozeUntil) {
+        setShowWaterReminder(true)
+        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+          try {
+            new Notification('Hydration Break 💧', {
+              body: `You've been focused for ${settings.waterIntervalMin || 30} minutes. Time to drink a glass of water!`,
+              icon: '/favicon.ico'
+            })
+          } catch {}
+        }
+      }
+    }
+  }, [onlineSeconds, settings.waterReminder, settings.waterIntervalMin, snoozeUntil])
 
   // Screen Wake Lock API: Prevent display shut off during focus sessions
   useEffect(() => {
@@ -3245,60 +3556,79 @@ const App = () => {
           </a>
 
           {/* Center Glassmorphism Pill Menu */}
-          <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 bg-black/40 backdrop-blur-xl border border-white/15 rounded-full px-2 py-1.5 items-center gap-1 shadow-2xl">
+          {showCenterPill ? (
+            <div className="absolute left-1/2 -translate-x-1/2 bg-black/40 backdrop-blur-xl border border-white/15 rounded-full px-2 py-1.5 flex items-center gap-1 shadow-2xl">
+              <button
+                onClick={() => setOpen('pomo')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'pomo' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              >
+                Pomodoro
+              </button>
+              <button
+                onClick={() => setOpen('tasks')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'tasks' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              >
+                Tasks
+              </button>
+              <button
+                onClick={() => setOpen('cal')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'cal' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              >
+                Calendar
+              </button>
+              <button
+                onClick={() => setOpen('notes')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'notes' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              >
+                Notes
+              </button>
+              <button
+                onClick={() => setOpen('canvas')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'canvas' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              >
+                Canvas
+              </button>
+              <button
+                onClick={() => setOpen('music')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'music' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              >
+                Music
+              </button>
+              <button
+                onClick={() => setOpen('stats')}
+                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'stats' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              >
+                Stats
+              </button>
+              <button
+                onClick={() => setOpen('settings')}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'settings' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+                title="Settings"
+              >
+                <SettingsIcon className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
             <button
-              onClick={() => setOpen('pomo')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'pomo' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
+              onClick={() => setShowBentoNav(true)}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-black/50 backdrop-blur-xl border border-white/20 text-white hover:bg-black/70 transition-all shadow-lg active:scale-95"
+              title="Open Navigation Bento Grid"
             >
-              Pomodoro
+              <SettingsIcon className="h-4 w-4 text-orange-400 animate-spin-slow" />
+              <span className="text-xs font-semibold tracking-wide">Menu</span>
             </button>
-            <button
-              onClick={() => setOpen('tasks')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'tasks' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
-            >
-              Tasks
-            </button>
-            <button
-              onClick={() => setOpen('cal')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'cal' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
-            >
-              Calendar
-            </button>
-            <button
-              onClick={() => setOpen('notes')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'notes' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
-            >
-              Notes
-            </button>
-            <button
-              onClick={() => setOpen('canvas')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'canvas' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
-            >
-              Canvas
-            </button>
-            <button
-              onClick={() => setOpen('music')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'music' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
-            >
-              Music
-            </button>
-            <button
-              onClick={() => setOpen('stats')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'stats' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
-            >
-              Stats
-            </button>
-            <button
-              onClick={() => setOpen('settings')}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'settings' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
-              title="Settings"
-            >
-              <SettingsIcon className="h-3.5 w-3.5" />
-            </button>
-          </div>
+          )}
 
           {/* Right Account Sign In */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <button
+              onClick={() => setShowWaterReminder(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 text-sky-300 text-xs font-semibold transition-all shadow-md active:scale-95"
+              title="Water Break Hydration Tracker"
+            >
+              <Droplets className="h-3.5 w-3.5 text-sky-400 animate-pulse" />
+              <span>{waterCount}/{settings.waterDailyGoal || 8} 🥛</span>
+            </button>
             <button
               onClick={() => setOpen('settings')}
               className="md:hidden p-2 rounded-full bg-black/40 backdrop-blur-md border border-white/20 text-white/80 hover:text-white"
@@ -3309,7 +3639,7 @@ const App = () => {
             {!user ? (
               <button
                 onClick={login}
-                className="bg-[#e8702a] hover:bg-[#d2611f] text-white text-xs font-semibold px-5 py-2 rounded-full transition-all shadow-lg active:scale-95 flex items-center gap-2"
+                className="bg-[#d9580c] hover:bg-[#c2410c] text-white text-xs font-bold px-5 py-2 rounded-full transition-all shadow-lg active:scale-95 flex items-center gap-2 border border-orange-400/30"
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
                 Sign In
@@ -3335,7 +3665,7 @@ const App = () => {
               <div className="flex items-center gap-1.5 p-1 rounded-full justify-center">
                 <button
                   onClick={() => { setPomoMode('focus'); setPomoRunning(false); }}
-                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${pomoMode === 'focus' ? 'bg-[#e8702a] text-white font-semibold shadow-lg shadow-[#e8702a]/35 ring-1 ring-[#e8702a]/50' : 'text-white/80 hover:text-white bg-black/30 hover:bg-black/50 backdrop-blur-sm'}`}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${pomoMode === 'focus' ? 'bg-[#d9580c] text-white font-bold shadow-lg shadow-[#d9580c]/35 ring-1 ring-[#ea580c]' : 'text-white/80 hover:text-white bg-black/30 hover:bg-black/50 backdrop-blur-sm'}`}
                 >
                   Focus ({pomoFocusMin}m)
                 </button>
@@ -3437,9 +3767,24 @@ const App = () => {
         />
         <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
         <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
-        <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} />
+        <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} onTestWater={() => setShowWaterReminder(true)} />
         {open === 'extension' && <ChromeExtensionModal open={open === 'extension'} onClose={() => setOpen(null)} />}
         <CookieBanner openModal={cookieModalOpen} onCloseModal={() => setCookieModalOpen(false)} />
+        <WaterBreakModal
+          open={showWaterReminder}
+          onClose={() => setShowWaterReminder(false)}
+          waterCount={waterCount}
+          setWaterCount={setWaterCount}
+          goal={settings.waterDailyGoal || 8}
+          intervalMin={settings.waterIntervalMin || 30}
+          onlineSeconds={onlineSeconds}
+          onSnooze={(mins) => setSnoozeUntil(Date.now() + mins * 60 * 1000)}
+        />
+        <BentoNavModal
+          open={showBentoNav}
+          onClose={() => setShowBentoNav(false)}
+          onSelect={(k) => setOpen(k)}
+        />
 
         {/* Fullscreen Changelog Page Overlay */}
         <AnimatePresence>

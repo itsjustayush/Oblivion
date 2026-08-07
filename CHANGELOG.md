@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ---
 
+## [2.0.0] - 2026-08-07
+
+### Added
+- **Condensed Navigation Bento Grid**: Condensed small-screen/mobile header navigation into a sleek Gear/Grid menu button that opens a full Bento Grid modal featuring quick access to Pomodoro, Tasks, Calendar, Notes, Canvas, Music, Stats, and Settings.
+- **Hydration Timer & Next Reminder Countdown**: Enhanced the Water Break Hydration Reminder with real-time active online tracking and dynamic `next reminder in: XXs` countdown.
+- **Workday Hydration Pace Calculator**: Added automatic workday progress tracking (9 AM - 5 PM) calculating expected glasses logged vs actual pace to keep users hydrated.
+- **Complete Legal & Governance Suite**: Created `LICENSE` (MIT), `SECURITY.md` (Responsible Vulnerability Disclosure), `PRIVACY.md`, `TERMS.md` (with AI disclaimers & ADR arbitration), `CONTRIBUTING.md`, and `ARCHITECTURE.md`.
+
+---
+
 ## [1.5.0] - 2026-07-30
 
 ### Added

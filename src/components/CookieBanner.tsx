@@ -167,7 +167,7 @@ export function CookieBanner({
             <Button
               size="sm"
               onClick={handleAcceptAll}
-              className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs h-8 shadow-lg shadow-orange-500/20"
+              className="bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs h-8 shadow-lg shadow-orange-600/30 border border-orange-400/30"
             >
               <Check className="h-3.5 w-3.5 mr-1" /> Accept All
             </Button>
@@ -250,7 +250,7 @@ export function CookieBanner({
             </Button>
             <Button
               onClick={() => savePreferences(prefs)}
-              className="bg-orange-500 hover:bg-orange-600 text-white font-semibold text-xs"
+              className="bg-orange-600 hover:bg-orange-700 text-white font-bold text-xs border border-orange-400/30"
             >
               Save Preferences
             </Button>
