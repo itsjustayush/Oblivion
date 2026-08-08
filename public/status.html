@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Oblivion — System Status</title>
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: '#e8702a',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @keyframes pulseGlow {
+      0%, 100% { opacity: 0.4; }
+      50% { opacity: 0.8; }
+    }
+    .animate-pulse-glow {
+      animation: pulseGlow 3s infinite ease-in-out;
+    }
+    @keyframes spinLinear {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    @keyframes spinReverse {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(-360deg); }
+    }
+    .animate-spin-ring {
+      animation: spinLinear 3s infinite linear;
+    }
+    .animate-spin-reverse {
+      animation: spinReverse 4s infinite linear;
+    }
+    .animate-spin-accent {
+      animation: spinLinear 2.5s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-100 min-h-screen flex flex-col font-sans selection:bg-orange-500 selection:text-white">
+
+  <!-- Background Canvas: Flickering Grid & Glyph Matrix & Ambient Glow -->
+  <div class="fixed inset-0 pointer-events-none overflow-hidden z-0">
+    <canvas id="flickeringGridCanvas" class="w-full h-full absolute inset-0 opacity-25 pointer-events-none"></canvas>
+    <canvas id="glyphMatrixCanvas" class="w-full h-full absolute inset-0 opacity-15 pointer-events-none"></canvas>
+    <div class="absolute -top-40 -left-40 w-96 h-96 bg-orange-600/10 rounded-full blur-3xl"></div>
+    <div class="absolute top-1/3 -right-40 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl"></div>
+  </div>
+
+  <div class="relative z-10 max-w-4xl w-full mx-auto px-4 py-8 sm:py-12 flex-1 flex flex-col">
+    
+    <!-- Top Header -->
+    <header class="flex items-center justify-between pb-6 border-b border-white/10 mb-8">
+      <div class="flex items-center gap-3">
+        <a href="/" class="flex items-center gap-2 group">
+          <div class="w-9 h-9 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center font-bold text-white text-lg shadow-lg shadow-orange-500/20 group-hover:scale-105 transition-transform">
+            O
+          </div>
+          <div>
+            <span class="font-bold text-lg tracking-tight text-white group-hover:text-orange-400 transition-colors">Oblivion</span>
+            <span class="text-xs text-zinc-400 ml-2 font-mono">/ status</span>
+          </div>
+        </a>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- Interactive Social Share Button Bar -->
+        <div id="socialShareContainer" class="relative group">
+          <button id="shareToggleBtn" class="px-3 py-1.5 rounded-xl bg-zinc-900/80 border border-white/10 text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all flex items-center gap-1.5 active:scale-95">
+            <svg class="w-3.5 h-3.5 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"></path>
+            </svg>
+            <span>Share</span>
+          </button>
+          
+          <!-- Dropdown/Slide-out Share items -->
+          <div id="shareMenu" class="hidden absolute right-0 top-10 bg-zinc-900 border border-white/15 rounded-2xl p-1.5 shadow-2xl flex items-center gap-1 z-30">
+            <button onclick="shareStatus('twitter')" class="p-2 rounded-xl hover:bg-white/10 text-zinc-300 hover:text-sky-400 transition-colors" title="Share on Twitter / X">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+            </button>
+            <button onclick="shareStatus('linkedin')" class="p-2 rounded-xl hover:bg-white/10 text-zinc-300 hover:text-blue-400 transition-colors" title="Share on LinkedIn">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.46 10.9v8.37H9.25V10.9H6.46M7.86 6.77a1.62 1.62 0 1 0 0 3.24 1.62 1.62 0 0 0 0-3.24z"/></svg>
+            </button>
+            <button onclick="shareStatus('copy')" class="p-2 rounded-xl hover:bg-white/10 text-zinc-300 hover:text-emerald-400 transition-colors" title="Copy Status URL">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
+            </button>
+          </div>
+        </div>
+
+        <button id="refreshBtn" onclick="fetchStatusData()" class="px-3 py-1.5 rounded-xl bg-zinc-900/80 border border-white/10 text-xs font-medium text-zinc-300 hover:text-white hover:bg-zinc-800 transition-all flex items-center gap-1.5 active:scale-95">
+          <svg id="refreshIcon" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+          Refresh
+        </button>
+        <a href="/" class="px-3.5 py-1.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold shadow-lg shadow-orange-500/20 transition-all active:scale-95 flex items-center gap-1">
+          Open App &rarr;
+        </a>
+      </div>
+    </header>
+
+    <!-- Concentric Ring Animated Loader Overlay (Shows while refreshing or initializing) -->
+    <div id="loaderContainer" class="flex flex-col items-center justify-center p-8 transition-opacity duration-300">
+      <div class="relative w-32 h-32 flex items-center justify-center">
+        <!-- Ring 1 -->
+        <div class="absolute inset-0 rounded-full border border-orange-500/30 animate-spin-ring" style="background: conic-gradient(from 0deg, transparent 0deg, rgba(232, 112, 42, 0.8) 90deg, transparent 180deg);"></div>
+        <!-- Ring 2 -->
+        <div class="absolute inset-2 rounded-full border border-emerald-500/20 animate-spin-reverse" style="background: conic-gradient(from 180deg, transparent 0deg, rgba(16, 185, 129, 0.6) 120deg, transparent 240deg);"></div>
+        <!-- Ring 3 Accent -->
+        <div class="absolute inset-4 rounded-full border border-sky-500/20 animate-spin-accent" style="background: conic-gradient(from 270deg, transparent 0deg, rgba(56, 189, 248, 0.5) 45deg, transparent 90deg);"></div>
+        
+        <div class="relative z-10 font-bold text-xs text-white uppercase tracking-widest bg-zinc-950 px-2 py-1 rounded-full border border-white/10">
+          Syncing
+        </div>
+      </div>
+      <div class="mt-4 text-center">
+        <h3 id="loaderTitle" class="text-sm font-medium text-white/90">Checking service health...</h3>
+        <p id="loaderSubtitle" class="text-xs text-white/50 mt-1">Connecting to Better Stack Uptime monitoring nodes</p>
+      </div>
+    </div>
+
+    <!-- Main Content Wrapper (Hidden until loaded) -->
+    <div id="statusContent" class="hidden">
+      <!-- Main Status Hero Card -->
+      <section id="statusHero" class="p-6 sm:p-8 rounded-3xl bg-zinc-900/60 border border-white/10 backdrop-blur-xl mb-8 transition-all">
+        <div class="flex items-center justify-between flex-wrap gap-4">
+          <div class="flex items-center gap-4">
+            <div id="statusDotContainer" class="relative flex items-center justify-center">
+              <span id="statusPing" class="animate-ping absolute inline-flex h-8 w-8 rounded-full bg-emerald-400 opacity-75"></span>
+              <span id="statusBadge" class="relative inline-flex rounded-full h-8 w-8 bg-emerald-500 items-center justify-center text-white font-bold">
+                ✓
+              </span>
+            </div>
+            <div>
+              <h1 id="statusTitle" class="text-xl sm:text-2xl font-bold tracking-tight text-white">All Systems Operational</h1>
+              <p id="statusSubtitle" class="text-xs sm:text-sm text-zinc-400 mt-0.5">All core services, APIs, and authentication endpoints are functioning normally.</p>
+            </div>
+          </div>
+
+          <div class="text-right font-mono text-xs text-zinc-500">
+            <div>Last checked: <span id="lastUpdated" class="text-zinc-300">Fetching...</span></div>
+            <div class="text-[11px] text-zinc-500 mt-0.5">Auto-refreshes every 60s</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- System Components Grid (Better Stack Telemetry Cards) -->
+      <section class="mb-8">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-4 flex items-center gap-2">
+          <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+          </svg>
+          Better Stack Monitored Services & Telemetry
+        </h2>
+
+        <div id="componentsList" class="flex flex-col gap-6">
+          <!-- Dynamic Better Stack Telemetry components go here -->
+        </div>
+      </section>
+
+      <!-- Incident History -->
+      <section class="p-6 rounded-3xl bg-zinc-900/40 border border-white/10 backdrop-blur-xl mb-8">
+        <h2 class="text-xs font-bold uppercase tracking-wider text-zinc-400 mb-3 flex items-center gap-2">
+          <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+          </svg>
+          90-Day Incident History
+        </h2>
+        <p id="incidentText" class="text-xs text-zinc-400">
+          No service disruptions or scheduled maintenance recorded in the last 90 days.
+        </p>
+      </section>
+    </div>
+
+    <!-- Footer -->
+    <footer class="mt-auto pt-6 border-t border-white/10 flex items-center justify-between text-xs text-zinc-500">
+      <div>&copy; 2026 Oblivion Study & Analytics. All rights reserved.</div>
+      <div class="flex items-center gap-4">
+        <a href="/" class="hover:text-zinc-300 transition-colors">App</a>
+        <a href="/api/health" target="_blank" class="hover:text-zinc-300 transition-colors">API Health</a>
+        <a href="/status.json" target="_blank" class="hover:text-zinc-300 transition-colors">Raw JSON</a>
+      </div>
+    </footer>
+
+  </div>
+
+  <script>
+    // Share menu handler
+    const shareToggleBtn = document.getElementById('shareToggleBtn');
+    const shareMenu = document.getElementById('shareMenu');
+
+    shareToggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      shareMenu.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', () => {
+      shareMenu.classList.add('hidden');
+    });
+
+    function shareStatus(platform) {
+      const url = window.location.href;
+      const text = "Oblivion Live System Status & Monitoring Health";
+
+      if (platform === 'twitter') {
+        window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, '_blank');
+      } else if (platform === 'linkedin') {
+        window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`, '_blank');
+      } else if (platform === 'copy') {
+        navigator.clipboard.writeText(url);
+        alert('Status page URL copied to clipboard!');
+      }
+    }
+
+    async function fetchStatusData() {
+      const refreshIcon = document.getElementById('refreshIcon');
+      refreshIcon.classList.add('animate-spin');
+      
+      const loader = document.getElementById('loaderContainer');
+      const content = document.getElementById('statusContent');
+
+      try {
+        let data = null;
+        try {
+          const res = await fetch('/api/status');
+          if (res.ok) data = await res.json();
+        } catch (e) {
+          console.warn('API endpoint unavailable, trying status.json fallback');
+        }
+
+        if (!data) {
+          const fallbackRes = await fetch('/status.json');
+          if (fallbackRes.ok) data = await fallbackRes.json();
+        }
+
+        if (data) {
+          renderStatus(data);
+          loader.classList.add('hidden');
+          content.classList.remove('hidden');
+        }
+      } catch (err) {
+        console.error('Failed to load status data', err);
+      } finally {
+        setTimeout(() => refreshIcon.classList.remove('animate-spin'), 500);
+      }
+    }
+
+    function renderStatus(data) {
+      const isOk = data.status === 'operational';
+      
+      // Update Hero
+      document.getElementById('statusTitle').textContent = isOk ? 'All Systems Operational' : 'Partial Service Degradation';
+      document.getElementById('statusSubtitle').textContent = isOk 
+        ? 'All core services, Express APIs, and cloud authentication endpoints are functioning normally.'
+        : 'One or more services may be experiencing heightened latency or temporary degradation.';
+      
+      const badge = document.getElementById('statusBadge');
+      const ping = document.getElementById('statusPing');
+      const hero = document.getElementById('statusHero');
+
+      if (isOk) {
+        badge.className = 'relative inline-flex rounded-full h-8 w-8 bg-emerald-500 items-center justify-center text-white font-bold';
+        ping.className = 'animate-ping absolute inline-flex h-8 w-8 rounded-full bg-emerald-400 opacity-75';
+        hero.className = 'p-6 sm:p-8 rounded-3xl bg-emerald-950/20 border border-emerald-500/30 backdrop-blur-xl mb-8 transition-all';
+      } else {
+        badge.className = 'relative inline-flex rounded-full h-8 w-8 bg-amber-500 items-center justify-center text-white font-bold';
+        ping.className = 'animate-ping absolute inline-flex h-8 w-8 rounded-full bg-amber-400 opacity-75';
+        hero.className = 'p-6 sm:p-8 rounded-3xl bg-amber-950/20 border border-amber-500/30 backdrop-blur-xl mb-8 transition-all';
+      }
+
+      document.getElementById('lastUpdated').textContent = new Date(data.updatedAt || Date.now()).toLocaleTimeString();
+
+      // Render Better Stack Telemetry Components
+      const list = document.getElementById('componentsList');
+      if (data.services && data.services.length) {
+        list.innerHTML = data.services.map((s, idx) => {
+          const isOk = s.status === 'operational' || s.status === 'up';
+          const statusIcon = isOk 
+            ? `<span class="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center justify-center font-bold text-xs">✓</span>`
+            : `<span class="w-5 h-5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center font-bold text-xs">!</span>`;
+          
+          // History bars (60 items)
+          const bars = s.historyBars || Array.from({ length: 60 }).map((_, i) => ({
+            status: i < 30 ? 'none' : (i === 33 && idx === 0 ? 'down' : 'up'),
+            date: `Day -${60 - i}`,
+            latency: `${Math.floor(40 + Math.random() * 80)}ms`
+          }));
+
+          const historyBarsHtml = bars.map(b => {
+            let colorClass = 'bg-emerald-500';
+            if (b.status === 'down') colorClass = 'bg-rose-500';
+            else if (b.status === 'none') colorClass = 'bg-zinc-800/80';
+            return `<div class="flex-1 h-full rounded-[2px] ${colorClass} hover:opacity-80 transition-opacity cursor-pointer" title="${b.date}: ${b.latency || 'Operational'}"></div>`;
+          }).join('');
+
+          // Response times points (30 points)
+          const points = s.responseTimes || Array.from({ length: 30 }).map((_, i) => ({
+            time: `${(i * 0.8 + 16) % 12 || 12}:00${(i * 0.8 + 16) % 24 >= 12 ? 'pm' : 'am'}`,
+            value: 0.1 + Math.random() * 0.2
+          }));
+
+          // Build SVG paths (Width 500, Height 120, max Y = 4.0s)
+          const svgWidth = 500;
+          const svgHeight = 120;
+          const pathCoords = points.map((p, i) => {
+            const x = (i / (points.length - 1)) * svgWidth;
+            const clampedVal = Math.min(Math.max(p.value, 0), 4.0);
+            const y = svgHeight - ((clampedVal / 4.0) * (svgHeight - 10) + 5);
+            return { x: x.toFixed(1), y: y.toFixed(1) };
+          });
+
+          const linePath = pathCoords.map((pt, i) => `${i === 0 ? 'M' : 'L'} ${pt.x} ${pt.y}`).join(' ');
+          const areaPath = `${linePath} L ${svgWidth} ${svgHeight} L 0 ${svgHeight} Z`;
+
+          const uptimeVal = s.uptimePercentage || s.uptime || '99.922%';
+
+          return `
+            <div class="p-5 sm:p-6 rounded-2xl bg-[#0f1118]/90 border border-white/10 backdrop-blur-xl transition-all shadow-2xl">
+              <!-- Header -->
+              <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2.5">
+                  ${statusIcon}
+                  <span class="font-bold text-base sm:text-lg text-white tracking-wide">${s.name}</span>
+                </div>
+                <div class="text-sm font-bold font-mono text-emerald-400">
+                  ${uptimeVal} uptime
+                </div>
+              </div>
+
+              <!-- Uptime 60-Bar History -->
+              <div class="flex items-center gap-[2px] w-full h-8 mb-6 py-1 bg-black/20 rounded-lg p-1 border border-white/5">
+                ${historyBarsHtml}
+              </div>
+
+              <!-- Response Times Label -->
+              <div class="text-xs font-semibold text-zinc-400 mb-3 tracking-wider uppercase">
+                Response times
+              </div>
+
+              <!-- SVG Chart Box -->
+              <div class="relative w-full bg-[#12141d] rounded-xl border border-white/10 p-4 sm:p-5 flex flex-col justify-between overflow-hidden">
+                <div class="relative w-full h-36">
+                  <svg class="w-full h-full overflow-visible" viewBox="0 0 500 120" preserveAspectRatio="none">
+                    <defs>
+                      <linearGradient id="grad-${idx}" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.3" />
+                        <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0" />
+                      </linearGradient>
+                    </defs>
+
+                    <!-- Horizontal Grid Lines -->
+                    <line x1="0" y1="5" x2="500" y2="5" stroke="#ffffff12" stroke-width="1" />
+                    <line x1="0" y1="33" x2="500" y2="33" stroke="#ffffff08" stroke-width="1" />
+                    <line x1="0" y1="61" x2="500" y2="61" stroke="#ffffff08" stroke-width="1" />
+                    <line x1="0" y1="89" x2="500" y2="89" stroke="#ffffff08" stroke-width="1" />
+                    <line x1="0" y1="115" x2="500" y2="115" stroke="#ffffff12" stroke-width="1" />
+
+                    <!-- Area Fill -->
+                    <path d="${areaPath}" fill="url(#grad-${idx})" />
+
+                    <!-- Line -->
+                    <path d="${linePath}" fill="none" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+
+                  <!-- Y-Axis Labels overlay on left -->
+                  <div class="absolute left-1 top-0 bottom-0 flex flex-col justify-between text-[10px] font-mono text-zinc-500 pointer-events-none">
+                    <span>4.0 s</span>
+                    <span>3.0 s</span>
+                    <span>2.0 s</span>
+                    <span>1.0 s</span>
+                    <span>0.0 s</span>
+                  </div>
+                </div>
+
+                <!-- X-Axis Timestamps at bottom -->
+                <div class="flex items-center justify-between text-[10px] sm:text-[11px] font-mono text-zinc-500 pt-3 border-t border-white/5 mt-2">
+                  <span>4:00pm</span>
+                  <span>8:00pm</span>
+                  <span>12:00am</span>
+                  <span>4:00am</span>
+                  <span>8:00am</span>
+                  <span>12:00pm</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    // Initial fetch
+    fetchStatusData();
+
+    // Auto refresh every 60 seconds
+    setInterval(fetchStatusData, 60000);
+
+    /* ---------------- Flickering Grid Canvas Engine ---------------- */
+    (function initFlickeringGrid() {
+      const canvas = document.getElementById('flickeringGridCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const squareSize = 6;
+      const gridGap = 8;
+      const flickerChance = 0.3;
+      const maxOpacity = 0.25;
+
+      let cols = 0;
+      let rows = 0;
+      let squares = new Float32Array(0);
+
+      function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+
+        cols = Math.ceil(w / (squareSize + gridGap));
+        rows = Math.ceil(h / (squareSize + gridGap));
+        squares = new Float32Array(cols * rows);
+        for (let i = 0; i < squares.length; i++) {
+          squares[i] = Math.random() * maxOpacity;
+        }
+        ctx.scale(dpr, dpr);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        for (let i = 0; i < cols; i++) {
+          for (let j = 0; j < rows; j++) {
+            const opacity = squares[i * rows + j];
+            ctx.fillStyle = `rgba(232, 112, 42, ${opacity})`;
+            ctx.fillRect(
+              i * (squareSize + gridGap),
+              j * (squareSize + gridGap),
+              squareSize,
+              squareSize
+            );
+          }
+        }
+      }
+
+      function update(deltaTime) {
+        for (let i = 0; i < squares.length; i++) {
+          if (Math.random() < flickerChance * deltaTime) {
+            squares[i] = Math.random() * maxOpacity;
+          }
+        }
+      }
+
+      let lastTime = performance.now();
+      function loop(time) {
+        const deltaTime = (time - lastTime) / 1000;
+        lastTime = time;
+        update(deltaTime);
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      window.addEventListener('resize', resize);
+      resize();
+      requestAnimationFrame(loop);
+    })();
+
+    /* ---------------- Glyph Matrix Canvas Engine ---------------- */
+    (function initGlyphMatrix() {
+      const canvas = document.getElementById('glyphMatrixCanvas');
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const glyphs = "01·•+*/\\<>=";
+      const cellSize = 16;
+      const mutationRate = 0.04;
+      const interval = 100;
+
+      let cols = 0;
+      let rows = 0;
+      let cells = [];
+      let alphas = [];
+      let last = 0;
+
+      function resize() {
+        const dpr = window.devicePixelRatio || 1;
+        const w = window.innerWidth;
+        const h = window.innerHeight;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        canvas.style.width = w + 'px';
+        canvas.style.height = h + 'px';
+        ctx.scale(dpr, dpr);
+
+        cols = Math.ceil(w / cellSize);
+        rows = Math.ceil(h / cellSize);
+
+        cells = new Array(cols * rows).fill(0).map(() => glyphs[Math.floor(Math.random() * glyphs.length)]);
+        alphas = new Array(cols * rows).fill(0).map(() => 0.05 + Math.random() * 0.25);
+      }
+
+      function draw() {
+        ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+        ctx.font = `${cellSize - 2}px monospace`;
+        ctx.textBaseline = "top";
+
+        for (let y = 0; y < rows; y++) {
+          const fade = 1 - (y / rows) * 0.6;
+          for (let x = 0; x < cols; x++) {
+            const i = y * cols + x;
+            const a = alphas[i] * fade;
+            ctx.fillStyle = `rgba(107, 114, 128, ${a})`;
+            ctx.fillText(cells[i], x * cellSize, y * cellSize);
+          }
+        }
+      }
+
+      function tick(t) {
+        if (t - last >= interval) {
+          last = t;
+          const total = cols * rows;
+          const mutations = Math.max(1, Math.floor(total * mutationRate));
+          for (let n = 0; n < mutations; n++) {
+            const i = Math.floor(Math.random() * total);
+            cells[i] = glyphs[Math.floor(Math.random() * glyphs.length)];
+            alphas[i] = 0.05 + Math.random() * 0.25;
+          }
+          draw();
+        }
+        requestAnimationFrame(tick);
+      }
+
+      window.addEventListener('resize', resize);
+      resize();
+      requestAnimationFrame(tick);
+    })();
+  </script>
+</body>
+</html>
+

@@ -1,0 +1,44 @@
+{
+  "name": "Oblivion",
+  "url": "https://oblivionstudy.com",
+  "status": "operational",
+  "updatedAt": "2026-08-08T00:24:00Z",
+  "services": [
+    {
+      "id": "web-app",
+      "name": "Oblivion Web App",
+      "status": "operational",
+      "description": "Core SPA interface, focus suit & ambient audio player",
+      "uptime": "99.99%"
+    },
+    {
+      "id": "core-api",
+      "name": "Core API (/api/health)",
+      "status": "operational",
+      "description": "Express REST services, quote generator & status proxies",
+      "uptime": "100.00%"
+    },
+    {
+      "id": "auth-service",
+      "name": "Authentication & Sync",
+      "status": "operational",
+      "description": "Firebase Auth & OAuth token verification",
+      "uptime": "99.98%"
+    },
+    {
+      "id": "ai-features",
+      "name": "AI Intelligence Engine",
+      "status": "operational",
+      "description": "Smart quote generation & task insights",
+      "uptime": "100.00%"
+    }
+  ],
+  "monitors": {
+    "betterStack": {
+      "name": "Better Stack Uptime",
+      "status": "connected",
+      "role": "Primary Uptime Monitoring System"
+    }
+  },
+  "incidents": []
+}

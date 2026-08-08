@@ -2824,6 +2824,20 @@ function WaterBreakModal({
   const intervalSec = (intervalMin || 30) * 60
   const nextReminderSecs = intervalSec - (onlineSeconds % intervalSec)
 
+  const formatTimeLeft = (totalSecs: number) => {
+    const h = Math.floor(totalSecs / 3600)
+    const m = Math.floor((totalSecs % 3600) / 60)
+    const s = Math.floor(totalSecs % 60)
+    const pad = (n: number) => n.toString().padStart(2, '0')
+
+    if (h > 0) {
+      return `${h}:${pad(m)}:${pad(s)}`
+    }
+    return `${pad(m)}:${pad(s)}`
+  }
+
+  const formattedTimeLeft = formatTimeLeft(nextReminderSecs)
+
   const drinkWater = () => {
     setWaterCount(c => c + 1)
     toast.success('Glass of water logged! 💧 Hydration boost recorded.', {
@@ -2898,7 +2912,7 @@ function WaterBreakModal({
                 <span>Active online for {intervalMin} mins</span>
                 <span>·</span>
                 <span className="font-mono text-sky-200 bg-sky-950/80 px-1.5 py-0.5 rounded border border-sky-500/30">
-                  next reminder in: {nextReminderSecs}s
+                  next reminder in: {formattedTimeLeft}
                 </span>
               </p>
             </div>
@@ -3165,6 +3179,21 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
             </div>
             <ArrowUpRight className="h-4 w-4 text-orange-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
           </button>
+          <a
+            href="/status.html"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-between text-xs text-emerald-400 hover:text-emerald-300 font-bold uppercase tracking-wider transition-all py-2.5 px-4 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 group"
+          >
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+              </span>
+              <span>System Health & Status Page</span>
+            </div>
+            <ArrowUpRight className="h-4 w-4 text-emerald-400 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform" />
+          </a>
           <div className="text-center text-xs text-white/50 font-medium">
             Made with love ❤️ by <a href="https://github.com/itsjustayush" target="_blank" rel="noopener noreferrer" className="hover:underline text-white/70 hover:text-white transition-colors">Ayush Bhattacharya</a>
           </div>
