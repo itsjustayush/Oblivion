@@ -47,7 +47,7 @@ const PLAYLISTS = [
 ]
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, Timestamp, addDoc, updateDoc, deleteDoc, getDocs, deleteField } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -59,19 +59,6 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/calendar');
 googleProvider.addScope('https://www.googleapis.com/auth/tasks');
 
-function getAuthFailureMessage(error: unknown) {
-  const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code || '') : ''
-  if (code.includes('auth/unauthorized-domain')) {
-    const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this deployment domain'
-    return `Sign in is blocked for ${hostname}. Add it to Firebase Authorized Domains.`
-  }
-  if (code.includes('auth/popup-blocked')) return 'The sign-in popup was blocked. Allow popups for this site and try again.'
-  if (code.includes('auth/popup-closed-by-user')) return 'The Google sign-in window was closed before completion.'
-  if (code.includes('auth/operation-not-allowed')) return 'Google sign-in is disabled in the Firebase project.'
-  if (code.includes('auth/network-request-failed')) return 'Firebase could not reach the network. Check your connection and try again.'
-  if (code.includes('auth/cancelled-popup-request')) return 'A sign-in window is already open. Complete it or close it before retrying.'
-  return 'Sign in failed. Check Firebase Authorized Domains and the Google provider configuration.'
-}
 /* ----------------------------- Spotlight Reveal ----------------------------- */
 const BG_IMAGE_1 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_195923_b0ba8ace-1d1d-4f2c-9a28-1ab84b330680.png&w=1280&q=85";
 const BG_IMAGE_2 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_201152_bba90a12-bf12-459f-91f0-51f237dbaf3b.png&w=1280&q=85";
@@ -3168,20 +3155,7 @@ const App = () => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {})
     }
-    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u))
-    getRedirectResult(auth)
-      .then((result) => {
-        if (!result) return
-        const credential = GoogleAuthProvider.credentialFromResult(result)
-        const token = credential?.accessToken ?? null
-        if (token) setGoogleToken(token)
-      })
-      .catch((error) => {
-        const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code || 'unknown') : 'unknown'
-        console.warn('Firebase redirect sign-in failed', code)
-        toast.error(getAuthFailureMessage(error))
-      })
-    return unsubscribe
+    return onAuthStateChanged(auth, (u) => setUser(u))
   }, [])
 
   useEffect(() => {
@@ -3215,18 +3189,7 @@ const App = () => {
       }
       if (res.user && !settings.name) setSettings(s => ({ ...s, name: res.user.displayName || '' }))
     } catch (err) {
-      const code = typeof err === 'object' && err !== null && 'code' in err ? String((err as { code?: unknown }).code || 'unknown') : 'unknown'
-      console.warn('Firebase sign-in failed', code)
-      if (code.includes('auth/popup-blocked')) {
-        try {
-          await signInWithRedirect(auth, googleProvider)
-          return
-        } catch (redirectError) {
-          toast.error(getAuthFailureMessage(redirectError))
-          return
-        }
-      }
-      toast.error(getAuthFailureMessage(err))
+      toast.error('Sign in failed')
     }
   }
 
