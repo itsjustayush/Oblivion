@@ -5,7 +5,7 @@
 
 'use client'
 
-import React, { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import React, { useEffect, useMemo, useState, useCallback, useRef, startTransition } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
 import {
   Home, StickyNote, ListChecks, Timer, CalendarDays, CalendarDays as Calendar, Music2, Settings as SettingsIcon,
@@ -16,7 +16,6 @@ import {
   Pin, PinOff, Palette, ListTodo, History, ArrowUpRight,
   ShieldAlert, Puzzle, BellOff, PenTool
 } from 'lucide-react'
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts'
 import { Button } from '@/src/components/ui/button'
 import { Input } from '@/src/components/ui/input'
 import { Slider } from '@/src/components/ui/slider'
@@ -30,21 +29,19 @@ const ChangelogView = React.lazy(() => import('@/src/components/ChangelogView').
 const ChromeExtensionModal = React.lazy(() => import('@/src/components/ChromeExtensionModal').then(m => ({ default: m.ChromeExtensionModal })))
 const CookieBanner = React.lazy(() => import('@/src/components/CookieBanner').then(m => ({ default: m.CookieBanner })))
 const CanvasNotesWorkspacePanel = React.lazy(() => import('@/src/components/CanvasNotesWorkspace').then(m => ({ default: m.CanvasNotesWorkspacePanel })))
+const StatsPanel = React.lazy(() => import('@/src/components/StatsPanel').then(m => ({ default: m.StatsPanel })))
 
 /* ----------------------------- Background Library ---------------------------- */
 const BACKGROUNDS = [
   { id: 'starry-night',  name: 'Starry Atmosphere', url: 'https://images.unsplash.com/photo-1506703719100-a0f3a48c0f86?auto=format&fit=crop&w=2400&q=85' },
   { id: 'foggy-forest',  name: 'Calm Forest',      url: 'https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=2400&q=85' },
-  { id: 'rain-window',   name: 'Rainy Window',     url: 'https://images.unsplash.com/photo-1519692933481-e162a57d6721?auto=format&fit=crop&w=2400&q=85' },
   { id: 'deep-space',    name: 'Cosmic Nebula',    url: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?auto=format&fit=crop&w=2400&q=85' },
   { id: 'cozy-lights',   name: 'Cozy Bokeh',       url: 'https://images.unsplash.com/photo-1518709268805-4e9042af9f23?auto=format&fit=crop&w=2400&q=85' },
   { id: 'dark-mountains',name: 'Dark Highlands',   url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=2400&q=85' },
 ]
 
 const PLAYLISTS = [
-  { id: '0owPbYZr8bqzFfpzLmP8UV', name: 'Rainy Day Lofi' },
   { id: '37i9dQZF1DWWQRwui0ExPn', name: 'Lofi Beats' },
-  { id: '37i9dQZF1DXcCnTAt8CfNe', name: 'Rainy Day' },
   { id: '37i9dQZF1DXbITWG1ZJKYt', name: 'Jazz Café' },
   { id: '37i9dQZF1DWZeKCadgRdKQ', name: 'Deep Focus' },
   { id: '37i9dQZF1DX3Ogo9pFvBkY', name: 'Ambient Study' },
@@ -52,12 +49,12 @@ const PLAYLISTS = [
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, Timestamp, addDoc, updateDoc, deleteDoc, getDocs } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, Timestamp, addDoc, updateDoc, deleteDoc, getDocs, deleteField } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId || 'ai-studio-0d0d80dd-7827-43ff-af09-0e4f6ee44d44';
-const db = getFirestore(app, firestoreDbId);
+export const db = getFirestore(app, firestoreDbId);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/calendar');
@@ -74,6 +71,10 @@ function RevealLayer({ image }: { image: string }) {
   const rafRef = React.useRef<number | null>(null)
 
   useEffect(() => {
+    const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (coarsePointer || reducedMotion) return
+
     const handleMouseMove = (e: MouseEvent) => {
       mouseRef.current = { x: e.clientX, y: e.clientY }
     }
@@ -115,14 +116,13 @@ function RevealLayer({ image }: { image: string }) {
 }
 
 /* ----------------------------- Firestore Error Handler ----------------------------- */
-function handleFirestoreError(error: unknown, op: string, path: string) {
+export function handleFirestoreError(error: unknown, op: string, path: string) {
   const errInfo = {
     error: error instanceof Error ? error.message : String(error),
     operationType: op,
     path: path,
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
+      authenticated: Boolean(auth.currentUser),
     }
   }
   console.error('Firestore Error:', JSON.stringify(errInfo))
@@ -144,7 +144,12 @@ const useLocal = <T,>(key: string, initial: T): [T, React.Dispatch<React.SetStat
 }
 
 const useSynced = <T,>(key: string, initial: T, user: User | null): [T, React.Dispatch<React.SetStateAction<T>>] => {
-  const [val, setVal] = useState<T>(initial)
+  const normalizeValue = useCallback((value: T): T => {
+    if (key !== 'oblivion.settings' || !value || typeof value !== 'object') return value
+    const { rain: _removed, ...withoutRain } = value as T & { rain?: unknown }
+    return withoutRain as T
+  }, [key])
+  const [val, setVal] = useState<T>(normalizeValue(initial))
   const lastSyncedRef = React.useRef<string>('')
   const isRemoteRef = React.useRef<boolean>(false)
 
@@ -153,11 +158,12 @@ const useSynced = <T,>(key: string, initial: T, user: User | null): [T, React.Di
     try {
       const raw = window.localStorage.getItem(key)
       if (raw !== null) {
-        setVal(JSON.parse(raw))
-        lastSyncedRef.current = raw
+        const normalized = normalizeValue(JSON.parse(raw))
+        setVal(normalized)
+        lastSyncedRef.current = JSON.stringify(normalized)
       }
     } catch {}
-  }, [key])
+  }, [key, normalizeValue])
 
   // If user is logged in, listen to Firestore
   useEffect(() => {
@@ -165,7 +171,7 @@ const useSynced = <T,>(key: string, initial: T, user: User | null): [T, React.Di
     if (key === 'oblivion.settings') {
       return onSnapshot(doc(db, 'users', user.uid), (snap) => {
         if (snap.exists()) {
-          const remoteData = snap.data() as T
+          const remoteData = normalizeValue(snap.data() as T)
           const str = JSON.stringify(remoteData)
           if (str !== lastSyncedRef.current) {
             isRemoteRef.current = true
@@ -175,7 +181,7 @@ const useSynced = <T,>(key: string, initial: T, user: User | null): [T, React.Di
         }
       }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}`))
     }
-  }, [user, key])
+  }, [user, key, normalizeValue])
 
   // Save to local storage and Firestore
   useEffect(() => {
@@ -187,7 +193,8 @@ const useSynced = <T,>(key: string, initial: T, user: User | null): [T, React.Di
           isRemoteRef.current = false
         } else if (str !== lastSyncedRef.current) {
           lastSyncedRef.current = str
-          setDoc(doc(db, 'users', user.uid), val as any, { merge: true })
+          const remotePayload = key === 'oblivion.settings' ? { ...(val as any), rain: deleteField() } : val
+          setDoc(doc(db, 'users', user.uid), remotePayload as any, { merge: true })
         }
       }
     } catch {}
@@ -204,29 +211,6 @@ const greetingFor = (hour: number, name?: string) => {
   if (hour < 21) return [`Good evening, ${N}.`, `Let's focus for a while.`, 'Wind down with intention.']
   return [`Late hours suit you, ${N}.`, 'Slow is smooth, smooth is fast.', 'A quiet mind goes far.']
 }
-
-/* ----------------------------- Rain ----------------------------- */
-const Rain = React.memo(function Rain({ intensity = 60 }: { intensity: number }) {
-  const drops = useMemo(() => {
-    const count = Math.max(0, Math.min(220, Math.round(intensity * 2.2)))
-    return Array.from({ length: count }).map((_, i) => ({
-      i,
-      left: Math.random() * 100,
-      duration: 0.6 + Math.random() * 1.2,
-      delay: -Math.random() * 2,
-      height: 60 + Math.random() * 100,
-      opacity: 0.4 + Math.random() * 0.5,
-    }))
-  }, [intensity])
-  return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {drops.map(d => (
-        <span key={d.i} className="rain-drop"
-          style={{ left: `${d.left}%`, height: `${d.height}px`, animationDuration: `${d.duration}s`, animationDelay: `${d.delay}s`, opacity: d.opacity }} />
-      ))}
-    </div>
-  )
-})
 
 /* ----------------------------- Weather Widget ----------------------------- */
 interface WeatherData {
@@ -255,7 +239,7 @@ function WeatherWidget() {
     if (code <= 3) return 'Partly Cloudy';
     if (code <= 48) return 'Foggy';
     if (code <= 55) return 'Drizzle';
-    if (code <= 65) return 'Rainy';
+    if (code <= 65) return 'Showers';
     if (code <= 77) return 'Snowy';
     if (code <= 82) return 'Showers';
     if (code <= 99) return 'Thunderstorm';
@@ -378,8 +362,8 @@ function WeatherWidget() {
 
   return (
     <>
-      <motion.div 
-        initial={{ opacity: 0, x: -10 }} 
+      <motion.div
+        initial={{ opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
         onClick={() => setShowDetail(true)}
         className="absolute top-20 sm:top-24 left-6 sm:left-8 flex items-center gap-3.5 z-50 glass px-4 py-2.5 rounded-2xl group hover:bg-white/10 transition-all duration-500 border border-white/5 hover:border-white/10 cursor-pointer active:scale-95"
@@ -398,10 +382,10 @@ function WeatherWidget() {
         </div>
       </motion.div>
 
-      <Panel 
-        open={showDetail} 
-        onClose={() => setShowDetail(false)} 
-        title="Weather Forecast" 
+      <Panel
+        open={showDetail}
+        onClose={() => setShowDetail(false)}
+        title="Weather Forecast"
         icon={<CloudSun className="h-4 w-4" />}
         width="max-w-md"
       >
@@ -411,7 +395,7 @@ function WeatherWidget() {
             <div className="text-6xl mb-4 drop-shadow-2xl">{getWeatherIcon(data.code)}</div>
             <div className="text-5xl font-bold tracking-tighter mb-1">{data.temp}°C</div>
             <div className="text-white/60 font-medium text-sm mb-4">{data.condition} in {data.location}</div>
-            
+
             <div className="grid grid-cols-3 gap-8 w-full pt-4 border-t border-white/5">
               <div className="flex flex-col items-center gap-1">
                 <Thermometer className="h-4 w-4 text-white/40" />
@@ -529,6 +513,10 @@ function CustomCursor() {
   const isVisibleRef = useRef(false)
 
   useEffect(() => {
+    const coarsePointer = window.matchMedia('(pointer: coarse)').matches
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    if (coarsePointer || reducedMotion) return
+
     document.documentElement.classList.add('custom-cursor-active')
 
     const updateStyles = () => {
@@ -710,396 +698,6 @@ export function Panel({ open, onClose, title, icon, children, width = 'max-w-3xl
 }
 
 /* ----------------------------- Stats ----------------------------- */
-function StatCard({ label, value, icon, color }: { label: string, value: string, icon: React.ReactNode, color: string }) {
-  return (
-    <div className={`relative overflow-hidden rounded-2xl p-5 border border-white/5 bg-gradient-to-br ${color} group transition-all hover:scale-[1.02] active:scale-[0.98]`}>
-      <div className="relative z-10 flex flex-col h-full">
-        <div className="flex items-center justify-between mb-4">
-          <div className="text-white/80 p-2 rounded-lg bg-black/10">{icon}</div>
-        </div>
-        <div className="mt-auto">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-white/50 font-bold mb-1">{label}</div>
-          <div className="text-2xl font-bold text-white tracking-tight">{value}</div>
-        </div>
-      </div>
-      <div className="absolute top-0 right-0 -mr-6 -mt-6 opacity-10 group-hover:opacity-20 transition-opacity">
-        {React.cloneElement(icon as React.ReactElement<{ size?: number }>, { size: 100 })}
-      </div>
-    </div>
-  )
-}
-
-function StatsPanel({ open, onClose, user, pomoCycles, setPomoCycles, pomoRunning, pomoRemaining, pomoTotal, pomoMode }: { 
-  open: boolean, 
-  onClose: () => void, 
-  user: User | null, 
-  pomoCycles: number, 
-  setPomoCycles: (c: number) => void,
-  pomoRunning: boolean,
-  pomoRemaining: number,
-  pomoTotal: number,
-  pomoMode: string
-}) {
-  const [tasksDone, setTasksDone] = useState(0)
-  const [sessions, setSessions] = useState<{ duration: number, timestamp: number, day: string }[]>([])
-  const [timeRange, setTimeRange] = useState<'7d' | '30d' | '90d' | 'all'>('7d')
-  const [activeMetric, setActiveMetric] = useState<'focus' | 'tasks' | 'score'>('focus')
-
-  useEffect(() => {
-    if (!user) {
-      setTasksDone(0)
-      setSessions([])
-      return
-    }
-    const qTasks = query(collection(db, 'users', user.uid, 'tasks'), where('done', '==', true))
-    const unsubTasks = onSnapshot(qTasks, (snap) => setTasksDone(snap.size), (err) => handleFirestoreError(err, 'get', `users/${user.uid}/tasks`))
-    
-    const qSessions = query(collection(db, 'users', user.uid, 'sessions'))
-    const unsubSessions = onSnapshot(qSessions, (snap) => {
-      setSessions(snap.docs.map(d => d.data() as any))
-    }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/sessions`))
-
-    return () => {
-      unsubTasks()
-      unsubSessions()
-      setTasksDone(0)
-      setSessions([])
-    }
-  }, [user])
-
-  const chartData = useMemo(() => {
-    const daysCount = timeRange === '7d' ? 7 : timeRange === '30d' ? 30 : timeRange === '90d' ? 90 : 365
-    const result = []
-    const now = new Date()
-
-    // 1. Strict Guest Mode / Unauthenticated check: Always return zeroed dataset when logged out
-    if (!user) {
-      for (let i = daysCount - 1; i >= 0; i--) {
-        const d = new Date(now)
-        d.setDate(d.getDate() - i)
-        const dayName = d.toLocaleDateString([], { weekday: 'short' })
-        const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-        result.push({
-          date: daysCount <= 7 ? dayName : dateStr,
-          focus: 0,
-          target: 0,
-          tasks: 0,
-          sessions: 0,
-          score: 0
-        })
-      }
-      return result
-    }
-
-    // 2. Authenticated User: Calculate ONLY from real per-user sessions & tasks (No mock fallback)
-    for (let i = daysCount - 1; i >= 0; i--) {
-      const d = new Date(now)
-      d.setDate(d.getDate() - i)
-      const dayName = d.toLocaleDateString([], { weekday: 'short' })
-      const dateStr = d.toLocaleDateString([], { month: 'short', day: 'numeric' })
-      
-      const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
-      const endOfDay = startOfDay + 86400000
-
-      const daySessions = sessions.filter(s => s.timestamp >= startOfDay && s.timestamp < endOfDay)
-      const focusMins = daySessions.reduce((acc, s) => acc + (s.duration || 0), 0)
-      
-      let totalFocus = focusMins
-      if (i === 0) {
-        totalFocus += pomoCycles * 25
-      }
-
-      const daySessionCount = daySessions.length + (i === 0 ? pomoCycles : 0)
-      const tasksCompletedInDay = i === 0 ? tasksDone : (daySessions.length > 0 ? Math.min(tasksDone, daySessions.length) : 0)
-      const dayScore = (totalFocus > 0 || tasksCompletedInDay > 0)
-        ? Math.min(100, Math.round((totalFocus / 45) * 50 + tasksCompletedInDay * 10))
-        : 0
-
-      result.push({
-        date: daysCount <= 7 ? dayName : dateStr,
-        focus: totalFocus,
-        target: totalFocus > 0 ? 45 : 0,
-        tasks: tasksCompletedInDay,
-        sessions: daySessionCount,
-        score: dayScore
-      })
-    }
-    
-    return result
-  }, [user, sessions, timeRange, pomoCycles, tasksDone])
-
-  const activeFocusMinutes = useMemo(() => {
-    if (pomoRunning && pomoMode === 'focus') {
-      return (pomoTotal - pomoRemaining) / 60
-    }
-    return 0
-  }, [pomoRunning, pomoMode, pomoTotal, pomoRemaining])
-
-  const totalFocusTimeMinutes = useMemo(() => {
-    if (!user) return 0
-    const fromSessions = sessions.reduce((acc, s) => acc + (s.duration || 0), 0)
-    return fromSessions + (pomoCycles * 25) + activeFocusMinutes
-  }, [user, sessions, pomoCycles, activeFocusMinutes])
-
-  const formatFocusTime = (minutes: number) => {
-    if (minutes < 60) return `${minutes.toFixed(0)}m`
-    const h = Math.floor(minutes / 60)
-    const m = Math.round(minutes % 60)
-    return `${h}h ${m}m`
-  }
-
-  const focusScore = useMemo(() => {
-    if (!user || (totalFocusTimeMinutes === 0 && tasksDone === 0)) return 0
-    const score = Math.min(100, (pomoCycles * 10) + (tasksDone * 5) + (activeFocusMinutes / 5))
-    return Math.round(score)
-  }, [user, pomoCycles, tasksDone, activeFocusMinutes, totalFocusTimeMinutes])
-
-  const handleExport = () => {
-    const data = {
-      pomoCycles,
-      tasksCompleted: tasksDone,
-      focusTimeMinutes: totalFocusTimeMinutes,
-      timestamp: new Date().toISOString(),
-      user: user?.email || 'Anonymous',
-      isolationUid: user?.uid || 'guest-local'
-    }
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `oblivion-stats-${new Date().toISOString().split('T')[0]}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('Stats exported successfully')
-  }
-
-  const handleReset = async () => {
-    if (confirm('Are you sure you want to reset all user session data and stats to 0 in Firebase & local state? This action cannot be undone.')) {
-      try {
-        setPomoCycles(0)
-        localStorage.removeItem('oblivion.pomodoro.cycles')
-        localStorage.setItem('oblivion.pomodoro.cycles', '0')
-        
-        if (user) {
-          const qSessions = query(collection(db, 'users', user.uid, 'sessions'))
-          const snap = await getDocs(qSessions)
-          const deletePromises = snap.docs.map(d => deleteDoc(doc(db, 'users', user.uid, 'sessions', d.id)))
-          
-          const statsRef = doc(db, 'users', user.uid, 'stats', 'summary')
-          const resetSummary = setDoc(statsRef, {
-            totalFocusMinutes: 0,
-            pomoCycles: 0,
-            tasksCompleted: 0,
-            resetAt: Date.now()
-          })
-
-          await Promise.all([...deletePromises, resetSummary])
-        }
-        
-        setSessions([])
-        toast.success('All user data and stats set to 0 in Firebase & local state!')
-      } catch (err) {
-        console.error('Reset failed:', err)
-        toast.error('Failed to reset remote database sessions')
-      }
-    }
-  }
-
-  return (
-    <Panel open={open} onClose={onClose} title="Focus Insights & Analytics" icon={<BarChart2 className="h-4 w-4" />} width="max-w-4xl">
-      <div className="p-6 md:p-8 h-full flex flex-col space-y-6 overflow-auto thin-scroll bg-zinc-950/80">
-        
-        {/* Header with Timeframe Filter */}
-        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/10">
-          <div>
-            <div className="flex items-center gap-2.5 mb-1">
-              <h2 className="text-2xl font-bold tracking-tight text-white">
-                Focus Analytics
-              </h2>
-            </div>
-            <p className="text-xs text-white/40 font-medium">Real-time personalized workflow metrics & interactive trends.</p>
-          </div>
-
-          <div className="flex bg-white/5 border border-white/10 rounded-xl p-1 self-start">
-            {(['7d', '30d', '90d', 'all'] as const).map(t => (
-              <button 
-                key={t} 
-                onClick={() => setTimeRange(t)}
-                className={`px-3 py-1 rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all ${
-                  timeRange === t ? 'bg-white text-black shadow-md' : 'text-white/40 hover:text-white'
-                }`}
-              >
-                {t === '7d' ? '7 Days' : t === '30d' ? '30 Days' : t === '90d' ? '90 Days' : 'All'}
-              </button>
-            ))}
-          </div>
-        </header>
-
-        {/* 6 Key Performance Metric Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <StatCard label="Streak" value={`${pomoCycles > 0 ? 1 : 0} days`} icon={<Flame className="h-4 w-4" />} color="from-orange-600/60 to-red-600/40" />
-          <StatCard label="Focus Time" value={formatFocusTime(totalFocusTimeMinutes)} icon={<Zap className="h-4 w-4" />} color="from-amber-600/60 to-orange-600/40" />
-          <StatCard label="Focus Score" value={String(focusScore)} icon={<Brain className="h-4 w-4" />} color="from-indigo-600/60 to-purple-600/40" />
-          <StatCard label="Tasks Done" value={String(tasksDone)} icon={<LayoutList className="h-4 w-4" />} color="from-emerald-600/60 to-teal-600/40" />
-          <StatCard label="Sessions" value={String(Math.max(sessions.length, pomoCycles))} icon={<RotateCcw className="h-4 w-4" />} color="from-blue-600/60 to-cyan-600/40" />
-          <StatCard label="Break Time" value={`${(pomoCycles * 5).toFixed(0)}m`} icon={<Coffee className="h-4 w-4" />} color="from-pink-600/60 to-rose-600/40" />
-        </div>
-
-        {/* Interactive Animated Chart Section */}
-        <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/10 flex flex-col space-y-4 shadow-2xl backdrop-blur-md">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-white/5">
-            <div>
-              <h3 className="text-xs uppercase tracking-[0.2em] text-white/50 font-bold">Productivity Metrics</h3>
-              <p className="text-[10px] text-white/30">Showing {timeRange === '7d' ? 'last 7 days' : timeRange === '30d' ? 'last 30 days' : 'historical'} breakdown</p>
-            </div>
-
-            {/* Metric Switcher */}
-            <div className="flex bg-black/40 border border-white/10 rounded-lg p-1 text-[10px] font-bold uppercase tracking-wider">
-              <button 
-                onClick={() => setActiveMetric('focus')}
-                className={`px-2.5 py-1 rounded-md transition-all ${activeMetric === 'focus' ? 'bg-[#e8702a] text-white' : 'text-white/40 hover:text-white'}`}
-              >
-                Focus vs Target
-              </button>
-              <button 
-                onClick={() => setActiveMetric('tasks')}
-                className={`px-2.5 py-1 rounded-md transition-all ${activeMetric === 'tasks' ? 'bg-[#e8702a] text-white' : 'text-white/40 hover:text-white'}`}
-              >
-                Tasks & Sessions
-              </button>
-              <button 
-                onClick={() => setActiveMetric('score')}
-                className={`px-2.5 py-1 rounded-md transition-all ${activeMetric === 'score' ? 'bg-[#e8702a] text-white' : 'text-white/40 hover:text-white'}`}
-              >
-                Score Trend
-              </button>
-            </div>
-          </div>
-          
-          <div className="w-full h-[280px] relative pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="focusGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#e8702a" stopOpacity={0.6}/>
-                    <stop offset="95%" stopColor="#e8702a" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="targetGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4}/>
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.5}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
-                <XAxis dataKey="date" stroke="rgba(255,255,255,0.2)" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }} />
-                <YAxis stroke="rgba(255,255,255,0.2)" tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 10 }} />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: 'rgba(9, 9, 11, 0.95)', 
-                    border: '1px solid rgba(255,255,255,0.15)', 
-                    borderRadius: '12px',
-                    boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.5)',
-                    padding: '10px 14px'
-                  }}
-                  itemStyle={{ fontSize: '11px', color: '#fff', padding: '2px 0' }}
-                  labelStyle={{ fontSize: '11px', fontWeight: 'bold', color: 'rgba(255,255,255,0.6)', marginBottom: '4px' }}
-                />
-                
-                {activeMetric === 'focus' && (
-                  <>
-                    <Area 
-                      type="natural" 
-                      dataKey="target" 
-                      name="Daily Target (mins)"
-                      stroke="#6366f1" 
-                      fillOpacity={1} 
-                      fill="url(#targetGrad)" 
-                      strokeWidth={2}
-                      isAnimationActive={true}
-                      animationDuration={1000}
-                    />
-                    <Area 
-                      type="natural" 
-                      dataKey="focus" 
-                      name="Focus Time (mins)"
-                      stroke="#e8702a" 
-                      fillOpacity={1} 
-                      fill="url(#focusGrad)" 
-                      strokeWidth={3}
-                      isAnimationActive={true}
-                      animationDuration={1200}
-                    />
-                  </>
-                )}
-
-                {activeMetric === 'tasks' && (
-                  <>
-                    <Area 
-                      type="natural" 
-                      dataKey="tasks" 
-                      name="Tasks Completed"
-                      stroke="#10b981" 
-                      fillOpacity={1} 
-                      fill="url(#scoreGrad)" 
-                      strokeWidth={2.5}
-                      isAnimationActive={true}
-                      animationDuration={1000}
-                    />
-                    <Area 
-                      type="natural" 
-                      dataKey="sessions" 
-                      name="Sessions"
-                      stroke="#3b82f6" 
-                      fillOpacity={1} 
-                      fill="url(#targetGrad)" 
-                      strokeWidth={2.5}
-                      isAnimationActive={true}
-                      animationDuration={1200}
-                    />
-                  </>
-                )}
-
-                {activeMetric === 'score' && (
-                  <Area 
-                    type="natural" 
-                    dataKey="score" 
-                    name="Productivity Score"
-                    stroke="#10b981" 
-                    fillOpacity={1} 
-                    fill="url(#scoreGrad)" 
-                    strokeWidth={3}
-                    isAnimationActive={true}
-                    animationDuration={1200}
-                  />
-                )}
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Action Controls */}
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-[10px] text-white/30 italic">
-            {user ? 'Cloud synchronized session analytics' : 'Local browser metrics engine'}
-          </span>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" onClick={handleExport} className="text-[10px] uppercase tracking-widest font-bold text-white/40 hover:text-white border border-white/5 hover:border-white/10 px-4 py-1.5 h-auto">
-              Export Data
-            </Button>
-            <Button variant="ghost" onClick={handleReset} className="text-[10px] uppercase tracking-widest font-bold text-red-400/70 hover:text-red-300 hover:bg-red-500/10 border border-red-500/10 px-4 py-1.5 h-auto">
-              Reset All User Data
-            </Button>
-          </div>
-        </div>
-
-      </div>
-    </Panel>
-  )
-}
-
 /* ----------------------------- Notes ----------------------------- */
 interface Note { id: string; title: string; body: string; updatedAt: number; color?: string; pinned?: boolean }
 
@@ -1214,12 +812,12 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
       })
       const listsData = await listsRes.json()
       const primaryListId = listsData.items && listsData.items.length > 0 ? listsData.items[0].id : '@default'
-      
+
       const payload: any = {
         title: note.title || 'Untitled Note',
         notes: note.body || ''
       }
-      
+
       const createRes = await fetch(`https://tasks.googleapis.com/v1/lists/${primaryListId}/tasks`, {
         method: 'POST',
         headers: {
@@ -1228,7 +826,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
         },
         body: JSON.stringify(payload)
       })
-      
+
       if (createRes.ok) {
         toast.success(`Exported "${note.title}" to Google Tasks!`)
       } else {
@@ -1241,7 +839,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
   }
 
   const filtered = notes.filter(n => !q || (n.title + ' ' + n.body).toLowerCase().includes(q.toLowerCase()))
-  
+
   // Sort and separate pinned/unpinned
   const pinnedNotes = filtered.filter(n => n.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
   const otherNotes = filtered.filter(n => !n.pinned).sort((a, b) => b.updatedAt - a.updatedAt)
@@ -1264,7 +862,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
     if (!current) return;
     const nextMode = !localChecklistMode;
     setLocalChecklistMode(nextMode);
-    
+
     if (nextMode) {
       const lines = current.body.split('\n');
       const formattedLines = lines.map(line => {
@@ -1316,7 +914,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
         onClick={() => setActive(n.id)}>
         <div className="flex items-start justify-between gap-2">
           <div className={`text-xs font-semibold truncate flex-1 uppercase tracking-wider ${colorInfo.text}`}>{n.title || 'Untitled Note'}</div>
-          <button 
+          <button
             title={n.pinned ? "Unpin note" : "Pin note"}
             onClick={(e) => {
               e.stopPropagation();
@@ -1352,7 +950,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
             </div>
             <Button size="icon" onClick={addNote} className="bg-white/10 hover:bg-white/20 h-9 w-9"><Plus className="h-4 w-4" /></Button>
           </div>
-          
+
           <div className="px-4 py-2 border-b border-white/5 bg-white/[0.015] flex items-center justify-between">
             <div className="text-[9px] uppercase tracking-[0.2em] text-white/40 font-bold">Notes List</div>
             {user ? (
@@ -1396,15 +994,15 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
           {current ? (
             <>
               <div className="p-4 flex items-center justify-between border-b border-white/5 bg-black/10 gap-3">
-                <input 
-                  value={current.title} 
+                <input
+                  value={current.title}
                   onChange={e => updateNote(current.id, { title: e.target.value })}
-                  className={`bg-transparent border-0 text-md font-semibold focus:outline-none p-0 flex-1 ${currentKeeperColor.text}`} 
-                  placeholder="Title" 
+                  className={`bg-transparent border-0 text-md font-semibold focus:outline-none p-0 flex-1 ${currentKeeperColor.text}`}
+                  placeholder="Title"
                 />
-                
+
                 <div className="flex items-center gap-1.5">
-                  <button 
+                  <button
                     onClick={toggleChecklistMode}
                     title={localChecklistMode ? "Switch to Plain Text" : "Switch to Checklist view"}
                     className={`p-2 rounded-lg transition-colors flex items-center justify-center ${localChecklistMode ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white hover:bg-white/10'}`}
@@ -1412,7 +1010,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
                     <ListTodo className="h-4 w-4" />
                   </button>
 
-                  <button 
+                  <button
                     onClick={() => updateNote(current.id, { pinned: !current.pinned })}
                     title={current.pinned ? "Unpin note" : "Pin note"}
                     className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors"
@@ -1420,7 +1018,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
                     {current.pinned ? <Pin className="h-4 w-4 fill-white text-white" /> : <Pin className="h-4 w-4" />}
                   </button>
 
-                  <button 
+                  <button
                     onClick={() => exportToGoogleTasks(current)}
                     title="Export checklist to Google Tasks"
                     className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-white transition-colors flex items-center gap-1 text-[10px] uppercase font-bold tracking-wider"
@@ -1429,7 +1027,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
                     <span className="hidden sm:inline">Export Tasks</span>
                   </button>
 
-                  <button 
+                  <button
                     onClick={() => removeNote(current.id)}
                     title="Delete Note"
                     className="p-2 hover:bg-white/10 rounded-lg text-white/60 hover:text-red-400 transition-colors"
@@ -1487,7 +1085,7 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
                       </button>
                     </div>
                   ))}
-                  
+
                   <button
                     onClick={() => {
                       const items = parseChecklist(current.body);
@@ -1504,11 +1102,11 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
                   </button>
                 </div>
               ) : (
-                <textarea 
-                  value={current.body} 
+                <textarea
+                  value={current.body}
                   onChange={e => updateNote(current.id, { body: e.target.value })}
                   placeholder="Start typing… Note supports checklists and text styling. Color-code using the palette below."
-                  className={`flex-1 bg-transparent border-0 resize-none focus:outline-none p-6 text-[14px] leading-relaxed thin-scroll ${currentKeeperColor.text} placeholder:text-white/30`} 
+                  className={`flex-1 bg-transparent border-0 resize-none focus:outline-none p-6 text-[14px] leading-relaxed thin-scroll ${currentKeeperColor.text} placeholder:text-white/30`}
                 />
               )}
 
@@ -1700,14 +1298,14 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
     try {
       // Optimistic update
       setGTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus as any } : t))
-      
+
       const res = await fetch(`https://tasks.googleapis.com/tasks/v1/lists/${activeListId}/tasks/${taskId}`, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${googleToken}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ 
+        body: JSON.stringify({
           status: newStatus,
           completed: newStatus === 'completed' ? new Date().toISOString() : null
         })
@@ -1813,10 +1411,10 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
   return (
     <Panel open={open} onClose={onClose} title="Checklist" icon={<ListChecks className="h-4 w-4" />} width="max-w-xl">
       <div className="flex flex-col h-full min-h-0">
-        
+
         {/* Sleek navigation tabs */}
         <div className="flex px-5 pt-3 border-b border-white/5 space-x-6 shrink-0 bg-white/[0.01]">
-          <button 
+          <button
             onClick={() => setActiveTab('flow')}
             className={`pb-3 text-[10px] uppercase tracking-[0.2em] font-black transition-all relative ${activeTab === 'flow' ? 'text-white' : 'text-white/30 hover:text-white/60'}`}
           >
@@ -1825,7 +1423,7 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
               <motion.div layoutId="checklist-active-tab-indicator" className="absolute bottom-0 left-0 right-0 h-[2px] bg-white rounded-full" />
             )}
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('google')}
             className={`pb-3 text-[10px] uppercase tracking-[0.2em] font-black transition-all relative flex items-center gap-1.5 ${activeTab === 'google' ? 'text-white' : 'text-white/30 hover:text-white/60'}`}
           >
@@ -1878,7 +1476,7 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
                     Access and manage your cloud-hosted Google Tasks directly from your workspace with safe syncs.
                   </p>
                 </div>
-                <button 
+                <button
                   onClick={linkGoogleTasks}
                   className="px-6 py-3 rounded-xl text-xs uppercase font-black tracking-widest bg-white text-black hover:bg-white/95 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center gap-2 shadow-lg shadow-white/5"
                 >
@@ -1887,7 +1485,7 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
               </div>
             ) : (
               <div className="p-5 flex flex-col flex-1 min-h-0">
-                
+
                 {/* Horizontal slider for list picker */}
                 {listLoading ? (
                   <div className="text-white/20 text-[10px] uppercase tracking-widest mb-3 animate-pulse">Loading task lists...</div>
@@ -1900,8 +1498,8 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
                             key={lst.id}
                             onClick={() => setActiveListId(lst.id)}
                             className={`px-3-5 py-1.5 rounded-full text-[9px] uppercase font-black tracking-widest shrink-0 transition-all border ${
-                              activeListId === lst.id 
-                                ? 'bg-white text-black border-white' 
+                              activeListId === lst.id
+                                ? 'bg-white text-black border-white'
                                 : 'bg-white/5 text-white/55 border-white/5 hover:border-white/20'
                             }`}
                           >
@@ -1915,12 +1513,12 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
 
                 {/* Adding task */}
                 <div className="flex gap-2">
-                  <Input 
-                    value={gInput} 
-                    onChange={e => setGInput(e.target.value)} 
+                  <Input
+                    value={gInput}
+                    onChange={e => setGInput(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && addGTaskItem()}
                     placeholder="Add task to Google Tasks…"
-                    className="bg-white/5 border-white/10 text-white placeholder:text-white/40 h-11" 
+                    className="bg-white/5 border-white/10 text-white placeholder:text-white/40 h-11"
                   />
                   <Button onClick={addGTaskItem} className="bg-white/10 hover:bg-white/20 h-11 px-4">Add</Button>
                 </div>
@@ -1997,8 +1595,8 @@ function DurationField({ label, v, set }: { label: string, v: number, set: (n: n
     </label>
   )
 }
-function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, shortMin, setShortMin, longMin, setLongMin, running, setRunning, remaining, setRemaining, total, cycles, onComplete }: { 
-  open: boolean, 
+function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, shortMin, setShortMin, longMin, setLongMin, running, setRunning, remaining, setRemaining, total, cycles, onComplete }: {
+  open: boolean,
   onClose: () => void,
   mode: 'focus' | 'short' | 'long',
   setMode: (m: 'focus' | 'short' | 'long') => void,
@@ -2062,16 +1660,16 @@ function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, sh
         width: 280,
         height: 320,
       })
-      
+
       const container = document.createElement('div')
       container.id = 'pip-pomodoro'
       pip.document.body.append(container)
-      
+
       // Copy styles
       const styles = document.querySelectorAll('style, link[rel="stylesheet"]')
       styles.forEach(s => pip.document.head.append(s.cloneNode(true)))
       pip.document.body.className = 'bg-[#050505] text-white flex flex-col items-center justify-center h-full m-0'
-      
+
       toast.success('Pomodoro in Picture-in-Picture')
     } catch (e) {
       toast.error('Failed to open PiP')
@@ -2160,13 +1758,13 @@ function PomodoroPanel({ open, onClose, mode, setMode, focusMin, setFocusMin, sh
 }
 
 /* ----------------------------- Calendar ----------------------------- */
-interface AppEvent { 
-  id: string; 
-  title: string; 
-  when: string; 
-  isGoogle?: boolean; 
-  calendarId?: string; 
-  calendarConfigColor?: string; 
+interface AppEvent {
+  id: string;
+  title: string;
+  when: string;
+  isGoogle?: boolean;
+  calendarId?: string;
+  calendarConfigColor?: string;
 }
 
 interface GoogleCalendarInfo {
@@ -2242,13 +1840,13 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
         if (!token) throw new Error('No access token')
         setGoogleToken(token)
       }
-      
+
       toast('Fetching calendar list...', { icon: '📅' })
       const listRes = await fetch('https://www.googleapis.com/calendar/v3/users/@me/calendarList', {
         headers: { 'Authorization': `Bearer ${token}` }
       })
       const listData = await listRes.json()
-      
+
       let fetchedCalendars: GoogleCalendarInfo[] = []
       if (listData.items) {
         fetchedCalendars = listData.items.map((item: any) => ({
@@ -2338,9 +1936,9 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
 
     if (user) {
       try {
-        const newEv = { 
-          userId: user.uid, 
-          title: title.trim(), 
+        const newEv = {
+          userId: user.uid,
+          title: title.trim(),
           when,
           ...(gEventId ? { googleEventId: gEventId, isGoogle: true } : {})
         }
@@ -2408,7 +2006,7 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
     <Panel open={open} onClose={onClose} title="Agenda" icon={<CalendarDays className="h-4 w-4" />} width="max-w-4xl">
       <div className="grid grid-cols-[320px_1fr] h-full min-h-0 bg-zinc-950">
         <div className="p-5 border-r border-white/10 flex flex-col min-h-0 bg-white/[0.015]">
-          
+
           {/* Google Calendars Filtering Workspace */}
           {googleCalendars.length > 0 && (
             <div className="mb-6 bg-white/[0.02] border border-white/5 rounded-xl p-3">
@@ -2421,9 +2019,9 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
                   const isChecked = selectedCalendarIds.includes(cal.id)
                   return (
                     <label key={cal.id} className="flex items-center gap-2.5 cursor-pointer group py-1">
-                      <input 
-                        type="checkbox" 
-                        checked={isChecked} 
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
                         onChange={() => {
                           if (isChecked) {
                             setSelectedCalendarIds(selectedCalendarIds.filter(id => id !== cal.id))
@@ -2457,15 +2055,15 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
               <Button onClick={add} className="w-full bg-white/10 hover:bg-white/20 h-10 text-sm uppercase tracking-widest font-bold">Add to Agenda</Button>
             </div>
           </div>
-          
+
           <div className="mt-8 flex-1 overflow-auto thin-scroll">
             <div className="text-[10px] uppercase tracking-[0.2em] text-white/40 mb-3 font-bold">Upcoming</div>
             <div className="space-y-1">
               {upcoming.length === 0 && <div className="text-white/20 text-[11px] py-4 text-center italic font-medium">A blank page exists ahead…</div>}
               {upcoming.map(e => (
                 <div key={e.id} className="group flex items-start gap-3 p-3 rounded-xl hover:bg-white/5 transition-all">
-                  <div 
-                    className="mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 glow-pulse" 
+                  <div
+                    className="mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 glow-pulse"
                     style={{ backgroundColor: e.isGoogle ? (e.calendarConfigColor || '#3b82f6') : 'rgba(255,255,255,0.7)' }}
                   />
                   <div className="flex-1 min-w-0">
@@ -2519,13 +2117,13 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
                       <div className="mt-2 space-y-1">
                         {dayEvents.slice(0, 3).map(e => (
                           e.isGoogle ? (
-                            <div 
-                              key={e.id} 
+                            <div
+                              key={e.id}
                               className="text-[9px] px-1.5 py-0.5 rounded border truncate font-medium"
-                              style={{ 
+                              style={{
                                 backgroundColor: `${e.calendarConfigColor || '#3b82f6'}1a`,
                                 borderColor: `${e.calendarConfigColor || '#3b82f6'}4d`,
-                                color: e.calendarConfigColor || '#93c5fd' 
+                                color: e.calendarConfigColor || '#93c5fd'
                               }}
                             >
                               {e.title}
@@ -2563,12 +2161,12 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
                       return (
                         <div key={e.id || index} className="relative group flex items-start justify-between gap-4 p-4 rounded-xl border border-white/5 bg-white/[0.02] hover:bg-white/[0.04] transition-all">
                           <div className="absolute -left-[26px] top-[22px] h-3 w-3 rounded-full border-2 border-zinc-950 flex items-center justify-center bg-zinc-900">
-                            <span 
-                              className="h-1.5 w-1.5 rounded-full" 
+                            <span
+                              className="h-1.5 w-1.5 rounded-full"
                               style={{ backgroundColor: e.isGoogle ? (e.calendarConfigColor || '#3b82f6') : 'rgba(255,255,255,0.7)' }}
                             />
                           </div>
-                          
+
                           <div className="flex-1 min-w-0">
                             <div className="text-[14px] text-white font-semibold truncate tracking-wide">{e.title}</div>
                             <div className="flex items-center gap-3 text-[10px] text-white/40 mt-1.5 font-mono">
@@ -2606,12 +2204,12 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
 }
 
 /* ----------------------------- Spotify ----------------------------- */
-function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify, user }: { 
-  open: boolean, 
-  onClose: () => void, 
-  playlistId: string, 
-  setPlaylistId: (id: string) => void, 
-  connectSpotify: () => void, 
+function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify, user }: {
+  open: boolean,
+  onClose: () => void,
+  playlistId: string,
+  setPlaylistId: (id: string) => void,
+  connectSpotify: () => void,
   user: User | null
 }) {
   const [isConnected, setIsConnected] = useState(false)
@@ -2633,15 +2231,15 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
   const activePlaylist = PLAYLISTS.find(p => p.id === playlistId) || PLAYLISTS[0]
 
   return (
-    <div 
+    <div
       className={`fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6 transition-all duration-300 ${
         open ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
       }`}
     >
       {/* Backdrop */}
-      <div 
-        className="absolute inset-0 bg-black/75 backdrop-blur-md" 
-        onClick={onClose} 
+      <div
+        className="absolute inset-0 bg-black/75 backdrop-blur-md"
+        onClick={onClose}
       />
 
       {/* Main Split Window Container */}
@@ -2656,8 +2254,8 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
             </div>
             <span className="font-semibold text-sm text-white tracking-wide">Focus Playlists</span>
           </div>
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-white/10 text-white/50 hover:text-white transition-colors"
             aria-label="Close Spotify Panel"
           >
@@ -2667,7 +2265,7 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
 
         {/* Modal Content Split Layout */}
         <div className="flex flex-col md:flex-row flex-1 min-h-0 overflow-hidden divide-y md:divide-y-0 md:divide-x divide-white/10">
-          
+
           {/* Left Column: Curation & Playlist Selection */}
           <div className="w-full md:w-1/2 p-6 md:p-8 space-y-6 overflow-y-auto thin-scroll flex flex-col justify-between">
             <div className="space-y-6">
@@ -2685,15 +2283,15 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
                 {PLAYLISTS.map(p => {
                   const isSelected = playlistId === p.id
                   return (
-                    <button 
-                      key={p.id} 
+                    <button
+                      key={p.id}
                       onClick={() => {
                         setPlaylistId(p.id)
                         if (!playerActivated) setPlayerActivated(true)
                       }}
                       className={`group relative p-4 rounded-2xl transition-all border flex items-center justify-between text-left overflow-hidden ${
-                        isSelected 
-                          ? 'bg-white text-black border-white shadow-xl shadow-white/10 scale-[1.01]' 
+                        isSelected
+                          ? 'bg-white text-black border-white shadow-xl shadow-white/10 scale-[1.01]'
                           : 'bg-white/[0.03] text-white border-white/5 hover:border-white/20 hover:bg-white/[0.06]'
                       }`}
                     >
@@ -2748,22 +2346,22 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
 
             <div className="flex-1 w-full rounded-2xl overflow-hidden border border-white/10 shadow-2xl bg-zinc-950 relative min-h-[350px]">
               {playerActivated ? (
-                <iframe 
-                  key={playlistId} 
+                <iframe
+                  key={playlistId}
                   title="Spotify Player Window"
                   src={`https://open.spotify.com/embed/playlist/${playlistId}?utm_source=oblivion&theme=0`}
-                  width="100%" 
-                  height="100%" 
+                  width="100%"
+                  height="100%"
                   frameBorder="0"
-                  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
-                  loading="lazy" 
+                  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                  loading="lazy"
                   className="w-full h-full rounded-2xl"
                 />
               ) : (
                 <div className="w-full h-full flex flex-col items-center justify-center p-6 text-center bg-black/60">
                   <Music2 className="h-12 w-12 text-[#e8702a] mb-3 animate-pulse" />
                   <p className="text-sm font-semibold text-white mb-2">Focus Playlist Facade</p>
-                  <button 
+                  <button
                     onClick={() => setPlayerActivated(true)}
                     className="px-5 py-2.5 rounded-full bg-[#e8702a] hover:bg-[#d2611f] text-white text-xs font-bold uppercase tracking-wider transition-all shadow-lg"
                   >
@@ -2797,7 +2395,7 @@ function Row({ label, children }: { label: string, children: React.ReactNode }) 
     </div>
   )
 }
-interface AppSettings { name: string; showGreeting: boolean; bgId: string; rain: number; blur: number; dim: number; grain: boolean; clockSize: number; keepAwake: boolean; waterReminder?: boolean; waterIntervalMin?: number; waterDailyGoal?: number }
+interface AppSettings { name: string; showGreeting: boolean; bgId: string; blur: number; dim: number; grain: boolean; clockSize: number; keepAwake: boolean; waterReminder?: boolean; waterIntervalMin?: number; waterDailyGoal?: number }
 
 /* ----------------------------- Water Break Hydration Reminder Modal ----------------------------- */
 function WaterBreakModal({
@@ -3014,27 +2612,29 @@ function BentoNavModal({
     <AnimatePresence>
       <div className="fixed inset-0 z-[250] bg-black/70 backdrop-blur-xl flex items-center justify-center p-4">
         <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          className="w-full max-w-lg p-6 rounded-3xl bg-zinc-950/90 border border-white/15 shadow-2xl text-white"
+          initial={{ opacity: 0, scale: 0.95, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 12 }}
+          transition={{ duration: 0.22, ease: 'easeOut' }}
+          className="w-full max-w-3xl p-5 sm:p-7 rounded-[2rem] bg-[radial-gradient(circle_at_top_right,rgba(232,112,42,0.16),transparent_40%),rgba(9,9,11,0.96)] border border-white/15 shadow-2xl shadow-black/50 text-white"
         >
           <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-2">
-              <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
-                <SettingsIcon className="h-5 w-5 animate-spin-slow" />
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-orange-500/15 text-orange-400 border border-orange-500/30 shadow-lg shadow-orange-950/30">
+                  <Navigation className="h-5 w-5" />
+                </div>
+                <div>
+                  <div className="text-[9px] uppercase tracking-[0.22em] text-orange-300/80 font-bold">Workspace index</div>
+                  <h3 className="text-xl font-bold text-white tracking-tight">Open a focus surface</h3>
+                  <p className="text-xs text-white/50 mt-0.5">Jump between your tools without losing context.</p>
+                </div>
               </div>
-              <div>
-                <h3 className="text-lg font-bold text-white tracking-tight">Navigation Bento</h3>
-                <p className="text-xs text-white/50">Select a tool to open module</p>
-              </div>
-            </div>
             <button onClick={onClose} className="p-2 rounded-full hover:bg-white/10 text-white/60 hover:text-white">
               <X className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {items.map((item) => {
               const Icon = item.icon
               return (
@@ -3044,7 +2644,8 @@ function BentoNavModal({
                     onSelect(item.key)
                     onClose()
                   }}
-                  className={`group relative p-4 rounded-2xl bg-gradient-to-br ${item.color} border text-left transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg`}
+                  aria-label={`Open ${item.title}`}
+                  className={`group relative min-h-[118px] p-4 rounded-2xl bg-gradient-to-br ${item.color} border text-left transition-all duration-200 hover:-translate-y-1 hover:scale-[1.015] hover:shadow-xl hover:shadow-black/20 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300/80`}
                 >
                   <div className="flex items-center justify-between mb-2">
                     <Icon className="h-5 w-5" />
@@ -3120,9 +2721,6 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
           </Row>
         </Section>
         <Section title="Atmosphere">
-          <Row label={`Rain intensity · ${settings.rain}%`}>
-            <Slider value={[settings.rain]} min={0} max={100} step={1} onValueChange={v => upd('rain', v[0])} className="max-w-xs w-48" />
-          </Row>
           <Row label={`Background blur · ${settings.blur}px`}>
             <Slider value={[settings.blur]} min={0} max={20} step={1} onValueChange={v => upd('blur', v[0])} className="max-w-xs w-48" />
           </Row>
@@ -3284,13 +2882,14 @@ function QuotePill() {
 /* ----------------------------- App ----------------------------- */
 const DEFAULT_SETTINGS: AppSettings = {
   name: '', showGreeting: true, bgId: 'starry-night',
-  rain: 55, blur: 4, dim: 45, grain: true, clockSize: 1, keepAwake: true,
+  blur: 4, dim: 45, grain: true, clockSize: 1, keepAwake: true,
   waterReminder: true, waterIntervalMin: 30, waterDailyGoal: 8,
 }
 
 const App = () => {
   const { isMobile, isTablet, isDesktop, showCenterPill, panelWidthClass } = useResponsiveLayout()
   const [user, setUser] = useState<User | null>(null)
+  const spotifyPopupRef = useRef<Window | null>(null)
   const [googleToken, setGoogleTokenState] = useState<string | null>(() => {
     try {
       return sessionStorage.getItem('oblivion.google_token') || null
@@ -3325,36 +2924,80 @@ const App = () => {
     0
   )
   const [onlineSeconds, setOnlineSeconds] = useState(0)
+  const onlineSecondsRef = useRef(0)
   const [showWaterReminder, setShowWaterReminder] = useState(false)
   const [snoozeUntil, setSnoozeUntil] = useState<number | null>(null)
+  const nextHydrationReminderRef = useRef<number | null>(null)
   const [showBentoNav, setShowBentoNav] = useState(false)
 
-  // Track active online seconds on site
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setOnlineSeconds(s => s + 1)
-    }, 1000)
-    return () => clearInterval(timer)
-  }, [])
+  const showHydrationReminder = useCallback(() => {
+    const intervalMin = settings.waterIntervalMin || 30
+    setShowWaterReminder(true)
+    toast('Hydration break · take a sip of water', {
+      id: 'hydration-reminder',
+      duration: 10000,
+      icon: <Droplets className="h-4 w-4 text-sky-400" />
+    })
 
-  // Water interval checker
-  useEffect(() => {
-    if (settings.waterReminder === false) return
-    const intervalSec = (settings.waterIntervalMin || 30) * 60
-    if (onlineSeconds > 0 && onlineSeconds % intervalSec === 0) {
-      if (!snoozeUntil || Date.now() > snoozeUntil) {
-        setShowWaterReminder(true)
-        if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
-          try {
-            new Notification('Hydration Break 💧', {
-              body: `You've been focused for ${settings.waterIntervalMin || 30} minutes. Time to drink a glass of water!`,
-              icon: '/favicon.ico'
-            })
-          } catch {}
+    if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      const notificationOptions = {
+        body: `You have been focused for ${intervalMin} minutes. Time to drink a glass of water.`,
+        icon: '/oblivion-mark.png',
+        badge: '/oblivion-mark.png',
+        tag: 'oblivion-hydration-reminder',
+        renotify: true,
+        requireInteraction: false
+      }
+      const showFallbackNotification = () => {
+        try {
+          const notification = new Notification('Hydration Break', notificationOptions)
+          notification.onclick = () => {
+            window.focus()
+            setShowWaterReminder(true)
+            notification.close()
+          }
+        } catch {
+          // The in-app toast and modal remain the fallback when system notifications fail.
         }
       }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready
+          .then(registration => registration.showNotification('Hydration Break', notificationOptions))
+          .catch(showFallbackNotification)
+      } else {
+        showFallbackNotification()
+      }
     }
-  }, [onlineSeconds, settings.waterReminder, settings.waterIntervalMin, snoozeUntil])
+  }, [settings.waterIntervalMin])
+
+  // Reliable hydration interval checker. Timing is kept in refs so the whole shell
+  // does not re-render every second; the modal alone receives countdown updates.
+  useEffect(() => {
+    if (settings.waterReminder === false) {
+      nextHydrationReminderRef.current = null
+      return
+    }
+    const intervalMs = Math.max(10, settings.waterIntervalMin || 30) * 60 * 1000
+    if (!nextHydrationReminderRef.current) nextHydrationReminderRef.current = Date.now() + intervalMs
+
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      onlineSecondsRef.current += 1
+      if (showWaterReminder) setOnlineSeconds(onlineSecondsRef.current)
+      if (!nextHydrationReminderRef.current || now < nextHydrationReminderRef.current) return
+      if (!snoozeUntil || now > snoozeUntil) {
+        showHydrationReminder()
+        nextHydrationReminderRef.current = now + intervalMs
+      } else {
+        nextHydrationReminderRef.current = snoozeUntil
+      }
+    }, 1000)
+    return () => window.clearInterval(timer)
+  }, [settings.waterReminder, settings.waterIntervalMin, snoozeUntil, showWaterReminder, showHydrationReminder])
+
+  useEffect(() => {
+    if (showWaterReminder) setOnlineSeconds(onlineSecondsRef.current)
+  }, [showWaterReminder])
 
   // Screen Wake Lock API: Prevent display shut off during focus sessions
   useEffect(() => {
@@ -3391,14 +3034,14 @@ const App = () => {
   const [pomoLongMin, setPomoLongMin] = useLocal('oblivion.pomodoro.long', 15)
   const [pomoRunning, setPomoRunning] = useState(false)
   const [pomoCycles, setPomoCycles] = useLocal('oblivion.pomodoro.cycles', 0)
-  
+
   const pomoTotal = useMemo(() => (pomoMode === 'focus' ? pomoFocusMin : pomoMode === 'short' ? pomoShortMin : pomoLongMin) * 60, [pomoMode, pomoFocusMin, pomoShortMin, pomoLongMin])
   const [pomoRemaining, setPomoRemaining] = useState(pomoTotal)
 
   const handlePomoComplete = useCallback(() => {
     const playNotification = (type: 'focus' | 'break') => {
-      const url = type === 'focus' 
-        ? 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg' 
+      const url = type === 'focus'
+        ? 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg'
         : 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg';
       const audio = new Audio(url);
       audio.volume = 0.5;
@@ -3409,7 +3052,7 @@ const App = () => {
       setPomoCycles(c => c + 1)
       toast.success('Focus session complete · take a break')
       playNotification('focus');
-      
+
       if (user) {
         const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
         const day = days[new Date().getDay()]
@@ -3431,6 +3074,9 @@ const App = () => {
 
   useEffect(() => {
     setMounted(true)
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {})
+    }
     return onAuthStateChanged(auth, (u) => setUser(u))
   }, [])
 
@@ -3476,9 +3122,13 @@ const App = () => {
 
   const connectSpotify = async () => {
     try {
-      const res = await fetch('/api/auth/spotify/url')
+      const res = await fetch('/api/auth/spotify/url', { cache: 'no-store' })
+      if (!res.ok) throw new Error('OAuth URL request failed')
       const { url } = await res.json()
-      window.open(url, 'spotify_auth', 'width=600,height=700')
+      if (typeof url !== 'string' || !url.startsWith('https://accounts.spotify.com/authorize?')) {
+        throw new Error('Invalid OAuth URL')
+      }
+      spotifyPopupRef.current = window.open(url, 'spotify_auth', 'width=600,height=700')
     } catch {
       toast.error('Failed to initiate Spotify connection')
     }
@@ -3486,30 +3136,31 @@ const App = () => {
 
   useEffect(() => {
     const handleMessage = async (e: MessageEvent) => {
-      // Valid origins for postMessage
-      const origin = e.origin;
-      if (!origin.endsWith('.run.app') && !origin.includes('localhost')) return;
+      // The callback is same-origin with the app and must come from the popup we opened.
+      if (e.origin !== window.location.origin || e.source !== spotifyPopupRef.current) return
+      if (e.data?.type !== 'SPOTIFY_AUTH_SUCCESS' || typeof e.data.transactionId !== 'string') return
 
-      if (e.data?.type === 'SPOTIFY_AUTH_SUCCESS' && e.data?.code) {
-        toast('Syncing with Spotify...', { icon: '🎵' })
-        try {
-          const response = await fetch('/api/auth/spotify/token', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: e.data.code })
+      spotifyPopupRef.current = null
+      toast('Syncing with Spotify...', { icon: '🎵' })
+      try {
+        const response = await fetch('/api/auth/spotify/session', {
+          method: 'POST',
+          cache: 'no-store',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transactionId: e.data.transactionId })
+        })
+        if (!response.ok) throw new Error('Spotify session exchange failed')
+        const tokens = await response.json()
+
+        if (typeof tokens.access_token === 'string' && user) {
+          await setDoc(doc(db, 'users', user.uid, 'integrations', 'spotify'), {
+            ...tokens,
+            updatedAt: Date.now()
           })
-          const tokens = await response.json()
-          
-          if (tokens.access_token && user) {
-            await setDoc(doc(db, 'users', user.uid, 'integrations', 'spotify'), {
-              ...tokens,
-              updatedAt: Date.now()
-            })
-            toast.success('Spotify connected successfully')
-          }
-        } catch (err) {
-          toast.error('Failed to link Spotify account')
+          toast.success('Spotify connected successfully')
         }
+      } catch {
+        toast.error('Failed to link Spotify account')
       }
     }
     window.addEventListener('message', handleMessage)
@@ -3573,8 +3224,6 @@ const App = () => {
         {/* Reveal image layer (z-30) */}
         <RevealLayer image={BG_IMAGE_2} />
 
-        {/* Rain animation if enabled */}
-        {mounted && settings.rain > 0 && <Rain intensity={settings.rain} />}
         {mounted && settings.grain && <div className="grain z-20 pointer-events-none" />}
 
         {/* Top Fixed Navigation Bar */}
@@ -3654,6 +3303,7 @@ const App = () => {
               onClick={() => setShowWaterReminder(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-sky-500/15 hover:bg-sky-500/25 border border-sky-400/30 text-sky-300 text-xs font-semibold transition-all shadow-md active:scale-95"
               title="Water Break Hydration Tracker"
+              aria-label={`Hydration progress: ${waterCount} of ${settings.waterDailyGoal || 8} glasses`}
             >
               <Droplets className="h-3.5 w-3.5 text-sky-400 animate-pulse" />
               <span>{waterCount}/{settings.waterDailyGoal || 8} 🥛</span>
@@ -3761,22 +3411,22 @@ const App = () => {
 
       {/* Panels */}
       <React.Suspense fallback={null}>
-        <StatsPanel 
-          open={open === 'stats'} 
-          onClose={() => setOpen(null)} 
-          user={user} 
-          pomoCycles={pomoCycles} 
-          setPomoCycles={setPomoCycles} 
+        {open === 'stats' && <StatsPanel
+          open
+          onClose={() => setOpen(null)}
+          user={user}
+          pomoCycles={pomoCycles}
+          setPomoCycles={setPomoCycles}
           pomoRunning={pomoRunning}
           pomoRemaining={pomoRemaining}
           pomoTotal={pomoTotal}
           pomoMode={pomoMode}
-        />
-        <NotesPanel open={open === 'notes'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
-        {open === 'canvas' && <CanvasNotesWorkspacePanel open={open === 'canvas'} onClose={() => setOpen(null)} user={user} />}
-        <ChecklistPanel open={open === 'tasks'} onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />
-        <PomodoroPanel 
-          open={open === 'pomo'} 
+        />}
+        {open === 'notes' && <NotesPanel open onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />}
+        {open === 'canvas' && <CanvasNotesWorkspacePanel open onClose={() => setOpen(null)} user={user} />}
+        {open === 'tasks' && <ChecklistPanel open onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />}
+        {open === 'pomo' && <PomodoroPanel
+          open
           onClose={() => setOpen(null)}
           mode={pomoMode}
           setMode={setPomoMode}
@@ -3793,10 +3443,10 @@ const App = () => {
           total={pomoTotal}
           cycles={pomoCycles}
           onComplete={handlePomoComplete}
-        />
-        <CalendarPanel open={open === 'cal'} onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />
-        <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />
-        <SettingsPanel open={open === 'settings'} onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} onTestWater={() => setShowWaterReminder(true)} />
+        />}
+        {open === 'cal' && <CalendarPanel open onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />}
+        {open === 'music' && <SpotifyPanel open onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />}
+        {open === 'settings' && <SettingsPanel open onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} onTestWater={() => setShowWaterReminder(true)} />}
         {open === 'extension' && <ChromeExtensionModal open={open === 'extension'} onClose={() => setOpen(null)} />}
         <CookieBanner openModal={cookieModalOpen} onCloseModal={() => setCookieModalOpen(false)} />
         <WaterBreakModal

@@ -229,7 +229,7 @@ export function CookieBanner({
               <div>
                 <div className="text-xs font-bold text-white">Personalization & Theme Cookies</div>
                 <p className="text-[11px] text-white/50 mt-1 leading-relaxed">
-                  Saves your preferred ambient rain audio volume, background wallpapers, dim levels, and clock size across browser restarts.
+                  Saves your preferred background wallpaper, dim level, film grain, and clock size across browser restarts.
                 </p>
               </div>
               <Switch

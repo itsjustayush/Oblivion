@@ -52,7 +52,7 @@ export const defaultEntries: ChangelogEntry[] = [
     items: [
       "Strict Guest Mode Zero-State: Chart and analytics explicitly force zeroed-out values (0 focus, 0 tasks, 0 score) when logged out.",
       "Interactive Area Visualizations: Replaced static line charts with smooth gradient AreaCharts and metric toggling (Focus vs Target, Tasks & Sessions, Score Trend).",
-      "Atmospheric HD Wallpapers: Added 6 high-definition wallpapers (Starry Atmosphere, Calm Forest, Rainy Window, Cosmic Nebula, Cozy Bokeh, Dark Highlands).",
+      "Atmospheric HD Wallpapers: Added high-definition focus wallpapers including Starry Atmosphere, Calm Forest, Cosmic Nebula, Cozy Bokeh, and Dark Highlands.",
       "Firebase Data Scrubbing & Reset: Enhanced history reset workflows to erase local storage and zero out remote Firestore session collections.",
     ],
     button: {

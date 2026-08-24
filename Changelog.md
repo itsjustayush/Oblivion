@@ -22,7 +22,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 - **Changelog Documentation**: Added `Changelog.md` documenting complete project evolution from repository initialization to current releases.
 - **Strict Guest Mode Zero-State**: Implemented strict unauthenticated checks in `StatsPanel` and chart components to force zeroed-out analytics (`focus: 0`, `tasks: 0`, `score: 0`) across all time ranges (7d, 30d, 90d, All) when no user is signed in.
 - **Interactive Area Charts**: Transformed productivity visualizations into smooth gradient `AreaChart` views using Recharts, with multi-metric toggling (Focus vs Target, Tasks & Sessions, Score Trend).
-- **High-Resolution Ambient Wallpapers**: Replaced older preset backgrounds with 6 atmospheric high-definition wallpapers (Starry Atmosphere, Calm Forest, Rainy Window, Cosmic Nebula, Cozy Bokeh, Dark Highlands).
+- **High-Resolution Ambient Wallpapers**: Replaced older preset backgrounds with 5 atmospheric high-definition wallpapers (Starry Atmosphere, Calm Forest, Cosmic Nebula, Cozy Bokeh, Dark Highlands).
 
 ### Fixed
 - **Multi-Tenant Session & Data Isolation**: Secured Firestore user queries (`users/{uid}/sessions`, `users/{uid}/tasks`) to guarantee complete isolation between authenticated accounts and prevent session data leaks into Guest Mode or other users.

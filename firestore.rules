@@ -1,17 +1,130 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // User data isolation: users can only read and write their own document and subcollections
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+    function signedIn() {
+      return request.auth != null;
+    }
 
-      match /{allPaths=**} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function hasOnly(keys) {
+      return request.resource.data.keys().hasOnly(keys);
+    }
+
+    function boundedString(value, maxLength) {
+      return value is string && value.size() <= maxLength;
+    }
+
+    function validSettings() {
+      return hasOnly([
+        'name', 'showGreeting', 'bgId', 'blur', 'dim', 'grain',
+        'clockSize', 'keepAwake', 'waterReminder', 'waterIntervalMin',
+        'waterDailyGoal'
+      ])
+      && (!('name' in request.resource.data) || boundedString(request.resource.data.name, 120))
+      && (!('showGreeting' in request.resource.data) || request.resource.data.showGreeting is bool)
+      && (!('bgId' in request.resource.data) || boundedString(request.resource.data.bgId, 80))
+      && (!('blur' in request.resource.data) || (request.resource.data.blur is number && request.resource.data.blur >= 0 && request.resource.data.blur <= 20))
+      && (!('dim' in request.resource.data) || (request.resource.data.dim is number && request.resource.data.dim >= 0 && request.resource.data.dim <= 80))
+      && (!('grain' in request.resource.data) || request.resource.data.grain is bool)
+      && (!('clockSize' in request.resource.data) || (request.resource.data.clockSize is number && request.resource.data.clockSize >= 0.6 && request.resource.data.clockSize <= 1.4))
+      && (!('keepAwake' in request.resource.data) || request.resource.data.keepAwake is bool)
+      && (!('waterReminder' in request.resource.data) || request.resource.data.waterReminder is bool)
+      && (!('waterIntervalMin' in request.resource.data) || (request.resource.data.waterIntervalMin is number && request.resource.data.waterIntervalMin >= 10 && request.resource.data.waterIntervalMin <= 90))
+      && (!('waterDailyGoal' in request.resource.data) || (request.resource.data.waterDailyGoal is number && request.resource.data.waterDailyGoal >= 4 && request.resource.data.waterDailyGoal <= 16));
+    }
+
+    function validOwnedDocument(userId, keys) {
+      return isOwner(userId)
+        && request.resource.data.userId == userId
+        && request.resource.data.keys().hasOnly(keys);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId) && validSettings();
+      allow delete: if isOwner(userId);
+
+      match /notes/{noteId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if validOwnedDocument(userId, ['userId', 'title', 'body', 'updatedAt', 'pinned', 'color'])
+          && boundedString(request.resource.data.title, 200)
+          && boundedString(request.resource.data.body, 100000)
+          && request.resource.data.updatedAt is number
+          && request.resource.data.updatedAt >= 0
+          && request.resource.data.pinned is bool
+          && boundedString(request.resource.data.color, 40);
+      }
+
+      match /tasks/{taskId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if validOwnedDocument(userId, ['userId', 'text', 'done', 'createdAt'])
+          && boundedString(request.resource.data.text, 5000)
+          && request.resource.data.done is bool
+          && request.resource.data.createdAt is number
+          && request.resource.data.createdAt >= 0;
+      }
+
+      match /events/{eventId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if validOwnedDocument(userId, ['userId', 'title', 'when', 'googleEventId', 'isGoogle'])
+          && boundedString(request.resource.data.title, 300)
+          && boundedString(request.resource.data.when, 120)
+          && (!('googleEventId' in request.resource.data) || boundedString(request.resource.data.googleEventId, 300))
+          && (!('isGoogle' in request.resource.data) || request.resource.data.isGoogle is bool);
+      }
+
+      match /sessions/{sessionId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if validOwnedDocument(userId, ['userId', 'duration', 'timestamp', 'day'])
+          && request.resource.data.duration is number
+          && request.resource.data.duration >= 0
+          && request.resource.data.duration <= 24 * 60
+          && request.resource.data.timestamp is number
+          && request.resource.data.timestamp >= 0
+          && boundedString(request.resource.data.day, 12);
+      }
+
+      match /canvas/{canvasId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && canvasId == 'data'
+          && request.resource.data.keys().hasOnly(['artifacts', 'selectedId', 'zoom', 'boardOffset', 'editorWidth', 'updatedAt'])
+          && request.resource.data.artifacts is list
+          && request.resource.data.artifacts.size() <= 200
+          && boundedString(request.resource.data.selectedId, 200)
+          && request.resource.data.zoom is number
+          && request.resource.data.zoom >= 0.1
+          && request.resource.data.zoom <= 4
+          && request.resource.data.boardOffset is map
+          && request.resource.data.boardOffset.keys().hasOnly(['x', 'y'])
+          && request.resource.data.boardOffset.x is number
+          && request.resource.data.boardOffset.y is number
+          && request.resource.data.editorWidth is number
+          && request.resource.data.editorWidth >= 240
+          && request.resource.data.editorWidth <= 1000
+          && request.resource.data.updatedAt is number
+          && request.resource.data.updatedAt >= 0;
+      }
+
+      match /integrations/{integrationId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && integrationId == 'spotify'
+          && request.resource.data.keys().hasOnly(['access_token', 'token_type', 'expires_in', 'refresh_token', 'scope', 'updatedAt'])
+          && boundedString(request.resource.data.access_token, 4096)
+          && (!('token_type' in request.resource.data) || boundedString(request.resource.data.token_type, 40))
+          && (!('expires_in' in request.resource.data) || (request.resource.data.expires_in is number && request.resource.data.expires_in >= 0 && request.resource.data.expires_in <= 86400))
+          && (!('refresh_token' in request.resource.data) || boundedString(request.resource.data.refresh_token, 4096))
+          && (!('scope' in request.resource.data) || boundedString(request.resource.data.scope, 2000))
+          && request.resource.data.updatedAt is number
+          && request.resource.data.updatedAt >= 0;
       }
     }
 
-    // Default deny for any other path
+    // Deny every undeclared collection and subcollection by default.
     match /{document=**} {
       allow read, write: if false;
     }

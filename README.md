@@ -27,7 +27,7 @@
 
 ## 📖 Deep-Dive Overview
 
-In an era of relentless digital notifications, context switching, and cluttered browser tabs, **Oblivion** was created to restore clarity and deep concentration. 
+In an era of relentless digital notifications, context switching, and cluttered browser tabs, **Oblivion** was created to restore clarity and deep concentration.
 
 Oblivion is an all-in-one ambient productivity sanctuary and study timer. Instead of forcing users to stitch together separate timer apps, music players, weather tabs, note widgets, and task managers, Oblivion unifies all essential deep-work utilities into a single, cohesive, dark-mode atmosphere.
 
@@ -46,7 +46,6 @@ By pairing customizable interval timing with curated audio vibes, real-time envi
 * **Integrated Spotify Player:** Built-in streaming frame providing instant access to full playlists directly inside your study canvas.
 * **Curated Vibe Channels:** Quick-switch ambient presets tailored for every mood:
   * 🎧 *Lofi Beats* — Relaxed, rhythmic instrumental study beats.
-  * 🌧️ *Rainy Day* — Soothing precipitation and cozy atmospheric soundscapes.
   * ☕ *Jazz Café* — Warm, background acoustic coffee house jazz.
   * 🧘 *Deep Focus* — Binaural alpha waves and deep drone textures.
   * 📚 *Ambient Study* — Gentle cinematic textures designed to heighten cognitive processing.

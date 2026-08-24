@@ -397,17 +397,17 @@ export function CanvasNotesWorkspacePanel({
   }, [compact, focusMode])
 
   return (
-    <Panel open={open} onClose={onClose} title="Endless Canvas & Notes Workspace" icon={<Layout className="h-4 w-4 text-orange-400" />} width="max-w-[95vw]">
+    <Panel open={open} onClose={onClose} title="Endless Canvas & Notes Workspace" icon={<Layout className="h-4 w-4 text-orange-400" />} width="max-w-[98vw]">
       <div
         ref={rootRef}
         onPointerMove={onRootPointerMove}
         onPointerUp={endPointerActions}
         onPointerCancel={endPointerActions}
-        className="relative w-full h-[78vh] min-h-[580px] bg-zinc-950 border border-white/10 rounded-xl overflow-hidden font-sans text-white select-none flex flex-col"
+        className="relative w-full h-[78vh] min-h-[520px] sm:min-h-[580px] bg-[radial-gradient(circle_at_top_right,rgba(232,112,42,0.08),transparent_35%),#09090b] border border-white/10 rounded-2xl overflow-hidden font-sans text-white select-none flex flex-col shadow-2xl"
       >
         {/* Top Header Controls Bar */}
         {!zenMode && (
-          <header className="h-12 border-b border-white/10 bg-black/60 backdrop-blur-xl px-4 flex items-center justify-between shrink-0 z-20">
+          <header className="min-h-14 border-b border-white/10 bg-black/60 backdrop-blur-xl px-3 sm:px-4 py-2 flex flex-wrap items-center justify-between gap-2 shrink-0 z-20">
             <div className="flex items-center gap-3">
               <div className="h-7 w-7 rounded-lg bg-orange-500/20 text-orange-400 flex items-center justify-center border border-orange-500/30">
                 <Sparkles className="h-4 w-4" />
@@ -417,7 +417,7 @@ export function CanvasNotesWorkspacePanel({
                   <span>Oblivion Canvas Workspace</span>
                 </h3>
               </div>
-              <span className="text-[10px] text-white/40 font-mono flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/5 border border-white/5">
+              <span className="text-[10px] text-white/40 font-mono flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/5 border border-white/5">
                 <Cloud className="h-3 w-3 text-emerald-400" />
                 {savedStamp}
               </span>
@@ -452,7 +452,7 @@ export function CanvasNotesWorkspacePanel({
 
         {/* Main 3-Column Workspace Layout */}
         <div className="grid flex-1 min-h-0 w-full overflow-hidden" style={{ gridTemplateColumns: compact ? '1fr' : `240px minmax(0, 1fr) 6px minmax(320px, ${editorWidth}px)` }}>
-          
+
           {/* 1. Left Index Drawer / Directory */}
           {(paneLayout === 'desktop' || paneLayout === 'index') && (
             <aside className="bg-zinc-900/90 border-r border-white/10 flex flex-col min-h-0 divide-y divide-white/10">
@@ -540,14 +540,15 @@ export function CanvasNotesWorkspacePanel({
                   setDragStart({ x: event.clientX, y: event.clientY })
                 })
               }}
-              className="relative overflow-hidden bg-[#090b0e] cursor-grab active:cursor-grabbing select-none"
+              className="relative overflow-hidden bg-[#090b0e] cursor-grab active:cursor-grabbing select-none touch-none"
               style={{
                 backgroundImage: 'radial-gradient(rgba(255,255,255,0.14) 1px, transparent 1px)',
-                backgroundSize: '22px 22px'
+                  backgroundSize: '22px 22px',
+                touchAction: 'none'
               }}
             >
               {/* Floating Zoom & Canvas Controls */}
-              <div className="absolute right-4 top-4 z-30 flex items-center gap-1.5 bg-black/60 backdrop-blur-xl border border-white/15 p-1 rounded-xl shadow-2xl">
+              <div className="absolute right-3 top-3 z-30 flex items-center gap-1.5 bg-black/70 backdrop-blur-xl border border-white/15 p-1 rounded-xl shadow-2xl">
                 <button
                   onClick={() => startTransition(() => setZoom((v) => Math.max(0.35, v - 0.1)))}
                   className="h-7 w-7 rounded-lg hover:bg-white/10 text-white/80 hover:text-white flex items-center justify-center transition-colors"
@@ -593,7 +594,7 @@ export function CanvasNotesWorkspacePanel({
                     <div
                       key={artifact.id}
                       onPointerDown={(event) => beginArtifactDrag(event, artifact.id)}
-                      className={`absolute rounded-2xl p-4 transition-all duration-150 cursor-grab active:cursor-grabbing border shadow-2xl backdrop-blur-md ${
+                      className={`absolute rounded-[1.25rem] p-4 transition-all duration-150 cursor-grab active:cursor-grabbing border shadow-2xl backdrop-blur-md ${
                         isSelected
                           ? 'border-orange-500 ring-2 ring-orange-500/40 shadow-orange-500/20 z-20 scale-[1.01]'
                           : 'border-white/10 bg-zinc-900/90 text-white hover:border-white/20 z-10'
@@ -635,7 +636,7 @@ export function CanvasNotesWorkspacePanel({
               </div>
 
               {/* Bottom Quick Create Toolbar */}
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 bg-black/80 backdrop-blur-2xl border border-white/15 p-2 rounded-2xl shadow-2xl">
+              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-30 max-w-[calc(100%-1.5rem)] overflow-x-auto no-scrollbar flex items-center gap-2 bg-black/85 backdrop-blur-2xl border border-white/15 p-2 rounded-2xl shadow-2xl">
                 <span className="text-[10px] uppercase tracking-widest font-bold text-white/40 px-2">Add</span>
                 <Button
                   size="sm"
@@ -680,7 +681,7 @@ export function CanvasNotesWorkspacePanel({
 
           {/* 3. Right Markdown Synced Editor Pane */}
           {(paneLayout === 'desktop' || paneLayout === 'editor') && (
-            <aside className="bg-zinc-900/95 border-l border-white/10 flex flex-col min-h-0 divide-y divide-white/10">
+            <aside className="bg-zinc-900/95 border-l border-white/10 flex flex-col min-h-0 divide-y divide-white/10 shadow-[-20px_0_50px_rgba(0,0,0,0.18)]">
               <div className="p-4 bg-black/20 space-y-2">
                 <Input
                   value={projectTitle}
@@ -776,7 +777,7 @@ export function CanvasNotesWorkspacePanel({
 
         {/* Mobile Pane Switcher */}
         {compact && (
-          <div className="p-2 bg-black/80 border-t border-white/10 flex items-center justify-center gap-2 z-30">
+          <div className="p-2 bg-black/85 border-t border-white/10 flex items-center justify-center gap-1.5 z-30">
             <Button
               variant={focusMode === 'index' ? 'default' : 'ghost'}
               size="sm"

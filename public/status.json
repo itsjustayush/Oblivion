@@ -2,7 +2,8 @@
   "name": "Oblivion",
   "url": "https://oblivionstudy.com",
   "status": "operational",
-  "updatedAt": "2026-08-08T00:24:00Z",
+  "source": "fallback",
+  "updatedAt": "2026-08-24T00:00:00Z",
   "services": [
     {
       "id": "web-app",
@@ -36,8 +37,8 @@
   "monitors": {
     "betterStack": {
       "name": "Better Stack Uptime",
-      "status": "connected",
-      "role": "Primary Uptime Monitoring System"
+      "status": "fallback",
+      "role": "Fallback snapshot; live Better Stack data is preferred"
     }
   },
   "incidents": []

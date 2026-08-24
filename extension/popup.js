@@ -22,18 +22,21 @@ document.addEventListener('DOMContentLoaded', () => {
   // Load saved state
   if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
     chrome.storage.local.get(['oblivion_timer', 'oblivion_tasks'], (res) => {
-      if (res.oblivion_timer) {
+      if (res.oblivion_timer && typeof res.oblivion_timer === 'object') {
         const state = res.oblivion_timer;
-        currentMode = state.mode || 'focus';
-        running = state.running || false;
-        remaining = state.remaining !== undefined ? state.remaining : 25 * 60;
-        blockNotifications = state.blockNotifications !== undefined ? state.blockNotifications : true;
-        keepAwake = state.keepAwake !== undefined ? state.keepAwake : true;
+        currentMode = ['focus', 'short', 'long'].includes(state.mode) ? state.mode : 'focus';
+        running = state.running === true;
+        remaining = Number.isFinite(state.remaining) ? Math.max(0, Math.min(24 * 60 * 60, state.remaining)) : 25 * 60;
+        blockNotifications = state.blockNotifications !== false;
+        keepAwake = state.keepAwake !== false;
 
         updateUI();
       }
-      if (res.oblivion_tasks) {
-        tasks = res.oblivion_tasks;
+      if (Array.isArray(res.oblivion_tasks)) {
+        tasks = res.oblivion_tasks
+          .filter((task) => task && typeof task.text === 'string')
+          .slice(0, 200)
+          .map((task) => ({ text: task.text.slice(0, 500), completed: task.completed === true }));
         renderTasks();
       }
     });
@@ -147,18 +150,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Tasks
   function renderTasks() {
-    taskList.innerHTML = '';
+    taskList.replaceChildren();
     tasks.forEach((task, i) => {
       const item = document.createElement('div');
       item.className = `task-item ${task.completed ? 'completed' : ''}`;
-      item.innerHTML = `
-        <input type="checkbox" class="task-checkbox" ${task.completed ? 'checked' : ''}>
-        <span style="flex:1;">${task.text}</span>
-      `;
-      item.querySelector('.task-checkbox').addEventListener('change', (e) => {
+
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.className = 'task-checkbox';
+      checkbox.checked = task.completed === true;
+
+      const label = document.createElement('span');
+      label.style.flex = '1';
+      label.textContent = task.text;
+
+      checkbox.addEventListener('change', (e) => {
         tasks[i].completed = e.target.checked;
         saveTasks();
       });
+      item.append(checkbox, label);
       taskList.appendChild(item);
     });
   }
@@ -173,7 +183,7 @@ document.addEventListener('DOMContentLoaded', () => {
   addTaskBtn.addEventListener('click', () => {
     const text = newTaskInput.value.trim();
     if (text) {
-      tasks.push({ text, completed: false });
+      tasks.push({ text: text.slice(0, 500), completed: false });
       newTaskInput.value = '';
       saveTasks();
     }

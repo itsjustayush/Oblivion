@@ -25,98 +25,51 @@ export interface BetterStackResponse {
   }>;
 }
 
-const DEFAULT_API_KEY = "7yRfPT7mzgwmS7pdMCmg1GWo";
+type StatusPayload = {
+  services?: Array<{
+    id?: string;
+    name?: string;
+    status?: string;
+    uptimePercentage?: string | number;
+    lastChecked?: string;
+    description?: string;
+  }>;
+};
 
 /**
- * Fetches monitor statuses directly from the Better Stack Uptime API v2.
- * Falls back to local API endpoint /api/status if direct browser CORS is restricted.
+ * Fetches sanitized monitoring data from the same-origin server proxy.
+ * The Better Stack bearer token is intentionally never accepted or sent by browser code.
  */
-export async function fetchBetterStackMonitors(apiKey: string = DEFAULT_API_KEY): Promise<ServiceStatus[]> {
+export async function fetchBetterStackMonitors(_apiKey?: string): Promise<ServiceStatus[]> {
   try {
-    const response = await fetch("https://uptime.betterstack.com/api/v2/monitors", {
-      method: "GET",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Accept": "application/json"
-      }
+    const response = await fetch('/api/status', {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { Accept: 'application/json' }
     });
+    if (!response.ok) throw new Error(`Status API HTTP Error: ${response.status}`);
 
-    if (!response.ok) {
-      throw new Error(`Better Stack API HTTP Error: ${response.status}`);
-    }
+    const payload = await response.json() as StatusPayload;
+    if (!Array.isArray(payload.services)) throw new Error('Invalid status response structure');
 
-    const payload: BetterStackResponse = await response.json();
-
-    if (!payload.data || !Array.isArray(payload.data)) {
-      throw new Error("Invalid response structure from Better Stack API");
-    }
-
-    return await Promise.all(payload.data.map(async (item) => {
-      const attr = item.attributes;
-      let status: ServiceStatus['status'] = 'operational';
-
-      if (attr.paused) {
-        status = 'paused';
-      } else if (attr.maintenance) {
-        status = 'maintenance';
-      } else if (attr.status === 'down') {
-        status = 'down';
-      } else if (attr.status === 'validating' || attr.status === 'pending') {
-        status = 'checking';
-      } else if (attr.status === 'up') {
-        status = 'operational';
-      }
-
-      let realAvailability = status === 'operational' ? 99.98 : 85.00;
-
-      try {
-        const slaRes = await fetch(`https://uptime.betterstack.com/api/v2/monitors/${item.id}/sla`, {
-          headers: { "Authorization": `Bearer ${apiKey}` }
-        });
-        if (slaRes.ok) {
-          const slaData = await slaRes.json();
-          if (slaData.data?.attributes?.availability !== undefined) {
-            realAvailability = parseFloat(slaData.data.attributes.availability.toFixed(3));
-          }
-        }
-      } catch (e) {
-        // SLA fetch fallback
-      }
-
+    return payload.services.slice(0, 20).map((item, index) => {
+      const allowedStatuses: ServiceStatus['status'][] = ['operational', 'degraded', 'down', 'paused', 'maintenance', 'checking'];
+      const status = allowedStatuses.includes(item.status as ServiceStatus['status'])
+        ? item.status as ServiceStatus['status']
+        : 'degraded';
+      const uptimePercentage = Number(item.uptimePercentage);
       return {
-        id: item.id,
-        name: attr.pronounceable_name || attr.url || `Monitor #${item.id}`,
+        id: typeof item.id === 'string' ? item.id.slice(0, 128) : String(index + 1),
+        name: typeof item.name === 'string' ? item.name.slice(0, 160) : `Monitor #${index + 1}`,
         status,
-        uptimePercentage: realAvailability,
-        lastChecked: attr.last_check_at ? new Date(attr.last_check_at).toLocaleTimeString() : 'Just now',
-        url: attr.url,
-        monitorType: attr.monitor_type || 'status'
+        uptimePercentage: Number.isFinite(uptimePercentage) ? Math.max(0, Math.min(100, uptimePercentage)) : undefined,
+        lastChecked: typeof item.lastChecked === 'string' ? item.lastChecked.slice(0, 80) : 'Just now',
+        monitorType: 'http'
       };
-    }));
+    });
   } catch (error) {
-    console.warn("Direct Better Stack API call failed, attempting local server proxy fallback...", error);
-    
-    // Fallback to local server proxy endpoint
-    try {
-      const fallbackRes = await fetch("/api/status");
-      if (fallbackRes.ok) {
-        const proxyData = await fallbackRes.json();
-        if (proxyData.components && Array.isArray(proxyData.components)) {
-          return proxyData.components.map((c: any) => ({
-            id: c.id,
-            name: c.name,
-            status: c.status === 'operational' ? 'operational' : 'degraded',
-            uptimePercentage: parseFloat(c.uptime || '99.99'),
-            lastChecked: 'Just now',
-            monitorType: 'http'
-          }));
-        }
-      }
-    } catch (fallbackErr) {
-      console.error("Fallback /api/status request also failed:", fallbackErr);
-    }
-
-    // Default system indicators if network is offline
+    console.warn('Status API request failed; using safe local indicators');
     return [
       { id: '1', name: 'Oblivion Web Application', status: 'operational', uptimePercentage: 99.99, lastChecked: 'Just now', monitorType: 'http' },
       { id: '2', name: 'Core API Gateway & Router', status: 'operational', uptimePercentage: 99.98, lastChecked: 'Just now', monitorType: 'http' },
@@ -126,9 +79,6 @@ export async function fetchBetterStackMonitors(apiKey: string = DEFAULT_API_KEY)
   }
 }
 
-/**
- * Evaluates operational health across all monitored services.
- */
 export async function getSystemHealth(apiKey?: string): Promise<{
   overallStatus: 'operational' | 'degraded' | 'down';
   monitors: ServiceStatus[];
@@ -137,12 +87,6 @@ export async function getSystemHealth(apiKey?: string): Promise<{
   const monitors = await fetchBetterStackMonitors(apiKey);
   const hasDown = monitors.some(m => m.status === 'down');
   const hasDegraded = monitors.some(m => m.status === 'degraded');
-
   const overallStatus = hasDown ? 'down' : hasDegraded ? 'degraded' : 'operational';
-
-  return {
-    overallStatus,
-    monitors,
-    lastUpdated: new Date().toLocaleTimeString()
-  };
+  return { overallStatus, monitors, lastUpdated: new Date().toLocaleTimeString() };
 }
