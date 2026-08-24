@@ -4,7 +4,7 @@ import { BarChart2, Brain, Coffee, Flame, LayoutList, RotateCcw, Zap } from 'luc
 import { toast } from 'sonner'
 import { Button } from '@/src/components/ui/button'
 import { Panel, db, handleFirestoreError } from '@/src/App'
-import { collection, deleteDoc, doc, getDocs, onSnapshot, query, setDoc, where } from 'firebase/firestore'
+import { collection, getDocs, limit, onSnapshot, orderBy, query, where, writeBatch } from 'firebase/firestore'
 import type { User } from 'firebase/auth'
 
 function StatCard({ label, value, icon, color }: { label: string, value: string, icon: React.ReactNode, color: string }) {
@@ -49,13 +49,48 @@ function StatsPanel({ open, onClose, user, pomoCycles, setPomoCycles, pomoRunnin
       setSessions([])
       return
     }
-    const qTasks = query(collection(db, 'users', user.uid, 'tasks'), where('done', '==', true))
-    const unsubTasks = onSnapshot(qTasks, (snap) => setTasksDone(snap.size), (err) => handleFirestoreError(err, 'get', `users/${user.uid}/tasks`))
 
-    const qSessions = query(collection(db, 'users', user.uid, 'sessions'))
-    const unsubSessions = onSnapshot(qSessions, (snap) => {
-      setSessions(snap.docs.map(d => d.data() as any))
-    }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/sessions`))
+    // The chart only renders the current year of history. Keep analytics reads
+    // bounded so an old account cannot force an unbounded client download.
+    const statsStart = Date.now() - 366 * 24 * 60 * 60 * 1000
+    const statsEnd = Date.now() + 24 * 60 * 60 * 1000
+    const qTasks = query(
+      collection(db, 'users', user.uid, 'tasks'),
+      where('done', '==', true),
+      limit(5000)
+    )
+    const unsubTasks = onSnapshot(
+      qTasks,
+      (snap) => setTasksDone(snap.size),
+      (err) => handleFirestoreError(err, 'get', `users/${user.uid}/tasks`)
+    )
+
+    const qSessions = query(
+      collection(db, 'users', user.uid, 'sessions'),
+      where('timestamp', '>=', statsStart),
+      where('timestamp', '<', statsEnd),
+      orderBy('timestamp', 'asc'),
+      limit(5000)
+    )
+    const unsubSessions = onSnapshot(
+      qSessions,
+      (snap) => {
+        const safeSessions = snap.docs.flatMap((d) => {
+          const data = d.data()
+          if (typeof data.timestamp !== 'number' || !Number.isFinite(data.timestamp)) return []
+          const duration = typeof data.duration === 'number' && Number.isFinite(data.duration)
+            ? Math.max(0, Math.min(data.duration, 24 * 60))
+            : 0
+          return [{
+            duration,
+            timestamp: data.timestamp,
+            day: typeof data.day === 'string' ? data.day.slice(0, 12) : ''
+          }]
+        })
+        setSessions(safeSessions)
+      },
+      (err) => handleFirestoreError(err, 'get', `users/${user.uid}/sessions`)
+    )
 
     return () => {
       unsubTasks()
@@ -179,23 +214,25 @@ function StatsPanel({ open, onClose, user, pomoCycles, setPomoCycles, pomoRunnin
         localStorage.setItem('oblivion.pomodoro.cycles', '0')
 
         if (user) {
-          const qSessions = query(collection(db, 'users', user.uid, 'sessions'))
-          const snap = await getDocs(qSessions)
-          const deletePromises = snap.docs.map(d => deleteDoc(doc(db, 'users', user.uid, 'sessions', d.id)))
+          const sessionsRef = collection(db, 'users', user.uid, 'sessions')
+          const pageSize = 400
+          let pageSizeRead = pageSize
 
-          const statsRef = doc(db, 'users', user.uid, 'stats', 'summary')
-          const resetSummary = setDoc(statsRef, {
-            totalFocusMinutes: 0,
-            pomoCycles: 0,
-            tasksCompleted: 0,
-            resetAt: Date.now()
-          })
+          // Firestore batches are capped at 500 writes. Delete in smaller
+          // pages so reset remains reliable even for long-lived accounts.
+          while (pageSizeRead === pageSize) {
+            const snap = await getDocs(query(sessionsRef, limit(pageSize)))
+            pageSizeRead = snap.size
+            if (snap.empty) break
 
-          await Promise.all([...deletePromises, resetSummary])
+            const batch = writeBatch(db)
+            snap.docs.forEach((sessionDoc) => batch.delete(sessionDoc.ref))
+            await batch.commit()
+          }
         }
 
         setSessions([])
-        toast.success('All user data and stats set to 0 in Firebase & local state!')
+        toast.success('All session data reset in Firebase and local state!')
       } catch (err) {
         console.error('Reset failed:', err)
         toast.error('Failed to reset remote database sessions')

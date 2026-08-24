@@ -48,7 +48,7 @@ const PLAYLISTS = [
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
-import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, Timestamp, addDoc, updateDoc, deleteDoc, getDocs, deleteField } from 'firebase/firestore';
+import { getFirestore, doc, setDoc, getDoc, collection, limit, onSnapshot, orderBy, query, where, Timestamp, addDoc, updateDoc, deleteDoc, getDocs, deleteField } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -747,7 +747,9 @@ function NotesPanel({ open, onClose, user, googleToken, setGoogleToken }: { open
 
   useEffect(() => {
     if (!user) return
-    const q = query(collection(db, 'users', user.uid, 'notes'))
+    // Keep the realtime feed bounded; the limit is a safety ceiling for
+    // unusually large accounts and does not affect normal note collections.
+    const q = query(collection(db, 'users', user.uid, 'notes'), orderBy('updatedAt', 'desc'), limit(1000))
     const unsubNotes = onSnapshot(q, (snap) => {
       setRemoteNotes(snap.docs.map(d => ({ id: d.id, ...d.data() } as Note)))
     }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/notes`))
@@ -1203,7 +1205,9 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
 
   useEffect(() => {
     if (!user) return
-    const q = query(collection(db, 'users', user.uid, 'tasks'))
+    // Keep the realtime feed bounded; the limit is a safety ceiling for
+    // unusually large accounts and does not affect normal task collections.
+    const q = query(collection(db, 'users', user.uid, 'tasks'), orderBy('createdAt', 'desc'), limit(1000))
     const unsubTasks = onSnapshot(q, (snap) => {
       setRemoteTasks(snap.docs.map(d => ({ id: d.id, ...d.data() } as Task)))
     }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/tasks`))
@@ -1832,7 +1836,8 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
   // Sync remote
   useEffect(() => {
     if (!user) return
-    const q = query(collection(db, 'users', user.uid, 'events'))
+    // Keep the realtime feed bounded while preserving chronological display.
+    const q = query(collection(db, 'users', user.uid, 'events'), orderBy('when', 'asc'), limit(1000))
     return onSnapshot(q, (snap) => {
       setRemoteEvents(snap.docs.map(d => ({ id: d.id, ...d.data() } as AppEvent)))
     }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/events`))
