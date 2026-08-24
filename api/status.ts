@@ -14,6 +14,9 @@ let cache: Cache = null;
 
 const MAX_MONITORS = 20;
 const TTL_MS = 60_000;
+const RATE_WINDOW_MS = 60_000;
+const RATE_LIMIT = 30;
+const requestWindows = new Map<string, { count: number; resetAt: number }>();
 
 function boundedString(value: unknown, fallback: string, max = 160) {
   return typeof value === 'string' && value.length > 0 ? value.slice(0, max) : fallback;
@@ -72,7 +75,7 @@ async function buildPayload() {
       id,
       name: boundedString(attributes.pronounceable_name || attributes.url, `Monitor ${id}`),
       status,
-      description: attributes.url ? `HTTP check on ${boundedString(attributes.url, 'configured endpoint', 300)}` : 'Monitored via Better Stack Uptime',
+      description: 'HTTP uptime check monitored via Better Stack',
       uptimePercentage: `${uptime.toFixed(3)}%`,
       historyBars,
       responseTimes: [],
@@ -95,8 +98,25 @@ async function buildPayload() {
   return payload;
 }
 
-export default async function handler(_req: any, res: any) {
+export default async function handler(req: any, res: any) {
+  if (!['GET', 'HEAD'].includes(String(req.method || 'GET').toUpperCase())) {
+    res.setHeader('Allow', 'GET, HEAD');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  const forwarded = typeof req.headers?.['x-forwarded-for'] === 'string' ? req.headers['x-forwarded-for'].split(',')[0].trim() : '';
+  const requester = forwarded || String(req.headers?.['x-real-ip'] || 'unknown').slice(0, 128);
+  const now = Date.now();
+  const windowState = requestWindows.get(requester);
+  if (!windowState || windowState.resetAt <= now) requestWindows.set(requester, { count: 1, resetAt: now + RATE_WINDOW_MS });
+  else if (windowState.count >= RATE_LIMIT) return res.status(429).json({ error: 'Too many requests' });
+  else windowState.count += 1;
+  if (requestWindows.size > 2000) {
+    for (const [key, value] of requestWindows) if (value.resetAt <= now) requestWindows.delete(key);
+  }
   res.setHeader('Cache-Control', 'public, s-maxage=30, stale-while-revalidate=60');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader('Origin-Agent-Cluster', '?1');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), payment=(), usb=()');

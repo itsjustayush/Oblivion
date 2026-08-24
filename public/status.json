@@ -10,28 +10,28 @@
       "name": "Oblivion Web App",
       "status": "operational",
       "description": "Core SPA interface, focus suit & ambient audio player",
-      "uptime": "99.99%"
+      "uptime": "Unavailable"
     },
     {
       "id": "core-api",
       "name": "Core API (/api/health)",
       "status": "operational",
       "description": "Express REST services, quote generator & status proxies",
-      "uptime": "100.00%"
+      "uptime": "Unavailable"
     },
     {
       "id": "auth-service",
       "name": "Authentication & Sync",
       "status": "operational",
       "description": "Firebase Auth & OAuth token verification",
-      "uptime": "99.98%"
+      "uptime": "Unavailable"
     },
     {
       "id": "ai-features",
       "name": "AI Intelligence Engine",
       "status": "operational",
       "description": "Smart quote generation & task insights",
-      "uptime": "100.00%"
+      "uptime": "Unavailable"
     }
   ],
   "monitors": {

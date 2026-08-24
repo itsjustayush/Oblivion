@@ -185,21 +185,10 @@ async function getStatusPayload() {
               const cause = requireNonEmptyString(dayIncident.attributes?.cause, 160) ? dayIncident.attributes.cause : "Outage";
               return { status: "down", date: dateStr, latency: `Outage (${cause})` };
             }
-            return { status: "up", date: dateStr, latency: `${Math.floor(80 + Math.random() * 60)}ms` };
+            return { status: "up", date: dateStr, latency: "Operational" };
           });
 
-          const responseTimes = Array.from({ length: 30 }).map((_, i) => {
-            let val = 0.08 + Math.random() * 0.22;
-            if (i === 6) val = 2.15;
-            if (i === 11) val = 3.02;
-            if (i === 12) val = 1.58;
-            if (i === 21) val = 2.24;
-            if (i === 28) val = 1.12;
-            const hour = (16 + Math.floor(i * 0.8)) % 24;
-            const period = hour >= 12 ? "pm" : "am";
-            const displayHour = hour % 12 === 0 ? 12 : hour % 12;
-            return { time: `${displayHour}:00${period}`, value: parseFloat(val.toFixed(3)) };
-          });
+          const responseTimes: Array<{ time: string; value: number }> = [];
 
           return {
             id: monitorId,
@@ -245,6 +234,9 @@ async function startServer() {
 
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+    res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+    res.setHeader("Origin-Agent-Cluster", "?1");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("Permissions-Policy", "camera=(), microphone=(), payment=(), usb=()");
     res.setHeader("Content-Security-Policy", "default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'");
@@ -260,7 +252,7 @@ async function startServer() {
 
   app.get(["/status", "/status.html"], (_req, res) => {
     res.setHeader("Cache-Control", "no-store");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
     res.sendFile(path.join(process.cwd(), "public", "status.html"));
   });
 

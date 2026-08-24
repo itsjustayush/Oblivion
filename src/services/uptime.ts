@@ -68,13 +68,10 @@ export async function fetchBetterStackMonitors(_apiKey?: string): Promise<Servic
         monitorType: 'http'
       };
     });
-  } catch (error) {
-    console.warn('Status API request failed; using safe local indicators');
+  } catch {
+    console.warn('Status API request failed; reporting monitoring unavailable')
     return [
-      { id: '1', name: 'Oblivion Web Application', status: 'operational', uptimePercentage: 99.99, lastChecked: 'Just now', monitorType: 'http' },
-      { id: '2', name: 'Core API Gateway & Router', status: 'operational', uptimePercentage: 99.98, lastChecked: 'Just now', monitorType: 'http' },
-      { id: '3', name: 'Authentication & Session Engine', status: 'operational', uptimePercentage: 100.0, lastChecked: 'Just now', monitorType: 'http' },
-      { id: '4', name: 'Database & Sync Engine', status: 'operational', uptimePercentage: 99.95, lastChecked: 'Just now', monitorType: 'database' }
+      { id: 'monitoring-unavailable', name: 'Monitoring unavailable', status: 'degraded', lastChecked: 'Unavailable', monitorType: 'http' }
     ];
   }
 }
