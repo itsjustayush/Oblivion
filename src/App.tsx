@@ -2228,23 +2228,13 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
 }
 
 /* ----------------------------- Spotify ----------------------------- */
-function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify, user }: {
+function SpotifyPanel({ open, onClose, playlistId, setPlaylistId }: {
   open: boolean,
   onClose: () => void,
   playlistId: string,
-  setPlaylistId: (id: string) => void,
-  connectSpotify: () => void,
-  user: User | null
+  setPlaylistId: (id: string) => void
 }) {
-  const [isConnected, setIsConnected] = useState(false)
   const [playerActivated, setPlayerActivated] = useState(false)
-
-  useEffect(() => {
-    if (!user) return
-    return onSnapshot(doc(db, 'users', user.uid, 'integrations', 'spotify'), (snap) => {
-      setIsConnected(snap.exists())
-    }, (err) => handleFirestoreError(err, 'get', `users/${user.uid}/integrations/spotify`))
-  }, [user])
 
   useEffect(() => {
     if (open && !playerActivated) {
@@ -2298,9 +2288,6 @@ function SpotifyPanel({ open, onClose, playlistId, setPlaylistId, connectSpotify
                   <div className="text-xs uppercase tracking-[0.25em] text-white/30 font-bold mb-1">Curation</div>
                   <h2 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">Choose your vibe</h2>
                 </div>
-                <button onClick={connectSpotify} className={`px-4 py-2 rounded-xl text-[10px] uppercase font-bold tracking-widest flex items-center gap-2 border transition-all h-fit ${isConnected ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-white/5 border-white/10 text-white/50 hover:bg-green-500/10 hover:border-green-500/30 hover:text-green-400'}`}>
-                  {isConnected ? <><Check className="h-4 w-4" /> Connected</> : <><Music2 className="h-4 w-4" /> Link Spotify</>}
-                </button>
               </header>
 
               <div className="grid grid-cols-1 gap-2.5">
@@ -2737,7 +2724,7 @@ function BentoNavModal({
   )
 }
 
-function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog, onOpenExtensionModal, onOpenCookieModal, onTestWater, onEnableNotifications }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void, onOpenCookieModal: () => void, onTestWater: () => void, onEnableNotifications: () => void }) {
+function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, onOpenChangelog, onOpenExtensionModal, onOpenCookieModal, onTestWater, onEnableNotifications }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void, onOpenCookieModal: () => void, onTestWater: () => void, onEnableNotifications: () => void }) {
   const upd = (k: keyof AppSettings, v: any) => setSettings({ ...settings, [k]: v })
   return (
     <Panel open={open} onClose={onClose} title="Settings" icon={<SettingsIcon className="h-4 w-4" />} width="max-w-xl">
@@ -2762,11 +2749,6 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
               <div className="text-[10px] text-white/40 italic px-1">Settings, notes, and tasks are now synced across devices.</div>
             </div>
           )}
-          <div className="mt-4 pt-4 border-t border-white/10 gap-3 flex">
-             <Button variant="outline" onClick={connectSpotify} className="w-full border-white/10 text-white/80 hover:bg-white/5 h-10 text-[10px] uppercase tracking-wider font-bold">
-                <Music2 className="h-3.5 w-3.5 mr-2" /> Spotify
-             </Button>
-          </div>
         </Section>
         <Section title="Hydration & Health Breaks">
           <Row label="Water Break Reminder (Active Time)">
@@ -2971,7 +2953,6 @@ const DEFAULT_SETTINGS: AppSettings = {
 const App = () => {
   const { isMobile, isTablet, isDesktop, showCenterPill, panelWidthClass } = useResponsiveLayout()
   const [user, setUser] = useState<User | null>(null)
-  const spotifyPopupRef = useRef<Window | null>(null)
   const [googleToken, setGoogleTokenState] = useState<string | null>(() => {
     try {
       return sessionStorage.getItem('oblivion.google_token') || null
@@ -3202,53 +3183,6 @@ const App = () => {
     setGoogleToken(null)
     signOut(auth)
   }
-
-  const connectSpotify = async () => {
-    try {
-      const res = await fetch('/api/auth/spotify/url', { cache: 'no-store' })
-      if (!res.ok) throw new Error('OAuth URL request failed')
-      const { url } = await res.json()
-      if (typeof url !== 'string' || !url.startsWith('https://accounts.spotify.com/authorize?')) {
-        throw new Error('Invalid OAuth URL')
-      }
-      spotifyPopupRef.current = window.open(url, 'spotify_auth', 'width=600,height=700')
-    } catch {
-      toast.error('Failed to initiate Spotify connection')
-    }
-  }
-
-  useEffect(() => {
-    const handleMessage = async (e: MessageEvent) => {
-      // The callback is same-origin with the app and must come from the popup we opened.
-      if (e.origin !== window.location.origin || e.source !== spotifyPopupRef.current) return
-      if (e.data?.type !== 'SPOTIFY_AUTH_SUCCESS' || typeof e.data.transactionId !== 'string') return
-
-      spotifyPopupRef.current = null
-      toast('Syncing with Spotify...', { icon: '🎵' })
-      try {
-        const response = await fetch('/api/auth/spotify/session', {
-          method: 'POST',
-          cache: 'no-store',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transactionId: e.data.transactionId })
-        })
-        if (!response.ok) throw new Error('Spotify session exchange failed')
-        const tokens = await response.json()
-
-        if (typeof tokens.access_token === 'string' && user) {
-          await setDoc(doc(db, 'users', user.uid, 'integrations', 'spotify'), {
-            ...tokens,
-            updatedAt: Date.now()
-          })
-          toast.success('Spotify connected successfully')
-        }
-      } catch {
-        toast.error('Failed to link Spotify account')
-      }
-    }
-    window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
-  }, [user])
 
   const toggleFullscreen = useCallback(() => {
     if (typeof document === 'undefined') return
@@ -3524,8 +3458,8 @@ const App = () => {
           onComplete={handlePomoComplete}
         />}
         {open === 'cal' && <CalendarPanel open onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />}
-        {open === 'music' && <SpotifyPanel open onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />}
-        {open === 'settings' && <SettingsPanel open onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} onTestWater={() => setShowWaterReminder(true)} onEnableNotifications={async () => {
+        {open === 'music' && <SpotifyPanel open onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} />}
+        {open === 'settings' && <SettingsPanel open onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} onTestWater={() => setShowWaterReminder(true)} onEnableNotifications={async () => {
           const permission = await requestHydrationPermissions()
           if (permission === 'granted') {
             playHydrationChime()
