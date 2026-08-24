@@ -56,11 +56,8 @@ const firestoreDbId = (firebaseConfig as any).firestoreDatabaseId || 'ai-studio-
 export const db = getFirestore(app, firestoreDbId);
 const auth = getAuth(app);
 const googleProvider = new GoogleAuthProvider();
-// Keep primary signup/signin lightweight. Optional Google API permissions are
-// requested only when the user explicitly connects Calendar or Tasks.
-const googleIntegrationProvider = new GoogleAuthProvider();
-googleIntegrationProvider.addScope('https://www.googleapis.com/auth/calendar');
-googleIntegrationProvider.addScope('https://www.googleapis.com/auth/tasks');
+googleProvider.addScope('https://www.googleapis.com/auth/calendar');
+googleProvider.addScope('https://www.googleapis.com/auth/tasks');
 
 /* ----------------------------- Spotlight Reveal ----------------------------- */
 const BG_IMAGE_1 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_195923_b0ba8ace-1d1d-4f2c-9a28-1ab84b330680.png&w=1280&q=85";
@@ -1278,7 +1275,7 @@ function ChecklistPanel({ open, onClose, user, googleToken, setGoogleToken }: { 
   const linkGoogleTasks = async () => {
     try {
       toast('Connecting to Google...', { icon: '🔄' })
-      const res = await signInWithPopup(auth, googleIntegrationProvider)
+      const res = await signInWithPopup(auth, googleProvider)
       const cred = GoogleAuthProvider.credentialFromResult(res)
       const token = cred?.accessToken ?? null
       if (!token) throw new Error('No access token')
@@ -1856,7 +1853,7 @@ function CalendarPanel({ open, onClose, user, gEvents, setGEvents, googleToken, 
       let token = googleToken
       if (!token) {
         toast('Connecting to Google...', { icon: '🔄' })
-        const res = await signInWithPopup(auth, googleIntegrationProvider)
+        const res = await signInWithPopup(auth, googleProvider)
         const cred = GoogleAuthProvider.credentialFromResult(res)
         token = cred?.accessToken ?? null
         if (!token) throw new Error('No access token')
