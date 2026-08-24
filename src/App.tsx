@@ -65,10 +65,18 @@ const BG_IMAGE_1 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%
 const BG_IMAGE_2 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_201152_bba90a12-bf12-459f-91f0-51f237dbaf3b.png&w=1280&q=85";
 
 function RevealLayer({ image }: { image: string }) {
-  const layerRef = React.useRef<HTMLDivElement | null>(null)
+  const layerRef = React.useRef<HTMLImageElement | null>(null)
+  const [ready, setReady] = useState(false)
   const mouseRef = React.useRef({ x: -999, y: -999 })
   const smoothRef = React.useRef({ x: -999, y: -999 })
   const rafRef = React.useRef<number | null>(null)
+
+  useEffect(() => {
+    const schedule = window.requestIdleCallback ?? ((callback: IdleRequestCallback) => window.setTimeout(callback, 700))
+    const cancel = window.cancelIdleCallback ?? ((id: number) => window.clearTimeout(id))
+    const id = schedule(() => setReady(true))
+    return () => cancel(id as number)
+  }, [])
 
   useEffect(() => {
     const coarsePointer = window.matchMedia('(pointer: coarse)').matches
@@ -80,7 +88,10 @@ function RevealLayer({ image }: { image: string }) {
     }
     window.addEventListener('mousemove', handleMouseMove)
 
-    const loop = () => {
+    let lastMaskX = -999
+    let lastMaskY = -999
+    let lastMaskAt = 0
+    const loop = (timestamp: number) => {
       if (mouseRef.current.x >= 0 && layerRef.current) {
         if (smoothRef.current.x < 0) {
           smoothRef.current = { ...mouseRef.current }
@@ -90,9 +101,15 @@ function RevealLayer({ image }: { image: string }) {
         }
         const x = smoothRef.current.x
         const y = smoothRef.current.y
-        const maskCss = `radial-gradient(circle 260px at ${x}px ${y}px, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 1) 40%, rgba(255, 255, 255, 0.75) 60%, rgba(255, 255, 255, 0.4) 75%, rgba(255, 255, 255, 0.12) 88%, rgba(255, 255, 255, 0) 100%)`
-        layerRef.current.style.maskImage = maskCss
-        layerRef.current.style.webkitMaskImage = maskCss
+        const moved = Math.abs(x - lastMaskX) > 0.75 || Math.abs(y - lastMaskY) > 0.75
+        if (moved && timestamp - lastMaskAt >= 24) {
+          const maskCss = `radial-gradient(circle 260px at ${x}px ${y}px, rgba(255, 255, 255, 1) 0%, rgba(255, 255, 255, 1) 40%, rgba(255, 255, 255, 0.75) 60%, rgba(255, 255, 255, 0.4) 75%, rgba(255, 255, 255, 0.12) 88%, rgba(255, 255, 255, 0) 100%)`
+          layerRef.current.style.maskImage = maskCss
+          layerRef.current.style.webkitMaskImage = maskCss
+          lastMaskX = x
+          lastMaskY = y
+          lastMaskAt = timestamp
+        }
       }
       rafRef.current = requestAnimationFrame(loop)
     }
@@ -104,13 +121,16 @@ function RevealLayer({ image }: { image: string }) {
     }
   }, [])
 
+  if (!ready) return null
   return (
-    <div
+    <img
       ref={layerRef}
-      className="absolute inset-0 bg-center bg-cover bg-no-repeat z-30 pointer-events-none"
-      style={{
-        backgroundImage: `url(${image})`,
-      }}
+      src={image}
+      alt=""
+      aria-hidden="true"
+      loading="lazy"
+      decoding="async"
+      className="absolute inset-0 h-full w-full object-cover object-center z-30 pointer-events-none"
     />
   )
 }
@@ -366,9 +386,9 @@ function WeatherWidget() {
         initial={{ opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
         onClick={() => setShowDetail(true)}
-        className="absolute top-20 sm:top-24 left-6 sm:left-8 flex items-center gap-3.5 z-50 glass px-4 py-2.5 rounded-2xl group hover:bg-white/10 transition-all duration-500 border border-white/5 hover:border-white/10 cursor-pointer active:scale-95"
+        className="absolute top-20 sm:top-24 left-6 sm:left-8 flex items-center gap-3.5 z-50 glass px-4 py-2.5 rounded-2xl group hover:bg-white/10 transition-all duration-200 border border-white/5 hover:border-white/10 cursor-pointer active:scale-95"
       >
-        <div className="text-2xl drop-shadow-lg group-hover:scale-110 transition-transform duration-500">
+        <div className="text-2xl drop-shadow-lg group-hover:scale-110 transition-transform duration-200">
           {getWeatherIcon(data.code)}
         </div>
         <div className="flex flex-col">
@@ -677,7 +697,7 @@ export function Panel({ open, onClose, title, icon, children, width = 'max-w-3xl
             initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.96 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: 12, scale: 0.96 }}
-            transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
             className={`relative glass-strong rounded-2xl w-full ${width} h-[82vh] max-h-[720px] overflow-hidden flex flex-col shadow-2xl border border-white/20 z-10`}
           >
             <div className="flex items-center justify-between px-5 py-3.5 border-b border-white/10 bg-black/50">
@@ -3216,9 +3236,13 @@ const App = () => {
       {/* Hero Section */}
       <section className="relative w-full h-screen overflow-hidden bg-black" style={{ height: '100dvh' }}>
         {/* Base geological landscape image (z-10) with slow zoom */}
-        <div
-          className="absolute inset-0 bg-center bg-cover bg-no-repeat z-10 hero-zoom"
-          style={{ backgroundImage: `url(${BG_IMAGE_1})` }}
+        <img
+          src={BG_IMAGE_1}
+          alt=""
+          aria-hidden="true"
+          fetchPriority="high"
+          decoding="async"
+          className="absolute inset-0 h-full w-full object-cover object-center z-10 hero-zoom"
         />
 
         {/* Reveal image layer (z-30) */}
