@@ -43,7 +43,7 @@ By pairing customizable interval timing with curated audio vibes, real-time envi
 * **Fluid Time Display:** Large, crisp display typography with document title clock synchronization so you can track remaining time even when viewing other tabs.
 
 ### 🎵 2. Ambient Audio & Music Curation
-* **Integrated Spotify Player:** Built-in streaming frame providing instant access to full playlists directly inside your study canvas.
+* **Integrated Spotify Player:** Built-in streaming frame providing instant access to full playlists directly inside your focus workspace.
 * **Curated Vibe Channels:** Quick-switch ambient presets tailored for every mood:
   * 🎧 *Lofi Beats* — Relaxed, rhythmic instrumental study beats.
   * ☕ *Jazz Café* — Warm, background acoustic coffee house jazz.
@@ -111,7 +111,7 @@ Oblivion is built on a modern, high-performance web architecture engineered for 
 
 Oblivion adheres to a strict **"Anti-Distraction First"** visual design language:
 
-1. **Dark Atmosphere:** Deep charcoal and warm dark canvas backgrounds (`#0d0d11`) lower eye strain during late-night study sessions.
+1. **Dark Atmosphere:** Deep charcoal and warm workspace backgrounds (`#0d0d11`) lower eye strain during late-night study sessions.
 2. **Subtle Elevation:** Soft, low-contrast 1px border lines and subtle glassmorphism containers maintain visual structure without creating visual noise.
 3. **Fluid Micro-Interactions:** Smooth CSS transitions for button states, modal overlays, and timer progress rings create a tactile, polished feel.
 4. **Spatial Balance:** Generous negative space ensures that primary actions (timer, audio controls) remain prominently centered.

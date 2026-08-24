@@ -14,7 +14,7 @@ import {
   Navigation, CloudSun, Thermometer, Wind, Droplets, Info,
   BarChart2, Flame, Zap, Brain, LayoutList, Coffee,
   Pin, PinOff, Palette, ListTodo, History, ArrowUpRight,
-  ShieldAlert, Puzzle, BellOff, PenTool
+  ShieldAlert, Puzzle, Bell, BellOff
 } from 'lucide-react'
 import { Button } from '@/src/components/ui/button'
 import { Input } from '@/src/components/ui/input'
@@ -28,7 +28,6 @@ import { useResponsiveLayout } from './hooks/useResponsiveLayout'
 const ChangelogView = React.lazy(() => import('@/src/components/ChangelogView').then(m => ({ default: m.ChangelogView })))
 const ChromeExtensionModal = React.lazy(() => import('@/src/components/ChromeExtensionModal').then(m => ({ default: m.ChromeExtensionModal })))
 const CookieBanner = React.lazy(() => import('@/src/components/CookieBanner').then(m => ({ default: m.CookieBanner })))
-const CanvasNotesWorkspacePanel = React.lazy(() => import('@/src/components/CanvasNotesWorkspace').then(m => ({ default: m.CanvasNotesWorkspacePanel })))
 const StatsPanel = React.lazy(() => import('@/src/components/StatsPanel').then(m => ({ default: m.StatsPanel })))
 
 /* ----------------------------- Background Library ---------------------------- */
@@ -48,7 +47,7 @@ const PLAYLISTS = [
 ]
 
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, User } from 'firebase/auth';
 import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, where, Timestamp, addDoc, updateDoc, deleteDoc, getDocs, deleteField } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -60,6 +59,19 @@ const googleProvider = new GoogleAuthProvider();
 googleProvider.addScope('https://www.googleapis.com/auth/calendar');
 googleProvider.addScope('https://www.googleapis.com/auth/tasks');
 
+function getAuthFailureMessage(error: unknown) {
+  const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code || '') : ''
+  if (code.includes('auth/unauthorized-domain')) {
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this deployment domain'
+    return `Sign in is blocked for ${hostname}. Add it to Firebase Authorized Domains.`
+  }
+  if (code.includes('auth/popup-blocked')) return 'The sign-in popup was blocked. Allow popups for this site and try again.'
+  if (code.includes('auth/popup-closed-by-user')) return 'The Google sign-in window was closed before completion.'
+  if (code.includes('auth/operation-not-allowed')) return 'Google sign-in is disabled in the Firebase project.'
+  if (code.includes('auth/network-request-failed')) return 'Firebase could not reach the network. Check your connection and try again.'
+  if (code.includes('auth/cancelled-popup-request')) return 'A sign-in window is already open. Complete it or close it before retrying.'
+  return 'Sign in failed. Check Firebase Authorized Domains and the Google provider configuration.'
+}
 /* ----------------------------- Spotlight Reveal ----------------------------- */
 const BG_IMAGE_1 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_195923_b0ba8ace-1d1d-4f2c-9a28-1ab84b330680.png&w=1280&q=85";
 const BG_IMAGE_2 = "https://images.higgs.ai/?default=1&output=webp&url=https%3A%2F%2Fd8j0ntlcm91z4.cloudfront.net%2Fuser_38xzZboKViGWJOttwIXH07lWA1P%2Fhf_20260609_201152_bba90a12-bf12-459f-91f0-51f237dbaf3b.png&w=1280&q=85";
@@ -2417,6 +2429,41 @@ function Row({ label, children }: { label: string, children: React.ReactNode }) 
 }
 interface AppSettings { name: string; showGreeting: boolean; bgId: string; blur: number; dim: number; grain: boolean; clockSize: number; keepAwake: boolean; waterReminder?: boolean; waterIntervalMin?: number; waterDailyGoal?: number }
 
+let hydrationAudioContext: AudioContext | null = null
+function unlockHydrationSound() {
+  if (typeof window === 'undefined') return
+  try {
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext
+    if (!AudioContextCtor) return
+    hydrationAudioContext ??= new AudioContextCtor()
+    void hydrationAudioContext.resume()
+  } catch {}
+}
+async function requestHydrationPermissions(): Promise<NotificationPermission | 'unsupported'> {
+  unlockHydrationSound()
+  if (typeof Notification === 'undefined') return 'unsupported'
+  return Notification.requestPermission()
+}
+function playHydrationChime() {
+  const context = hydrationAudioContext
+  if (!context || context.state !== 'running') return
+  try {
+    const now = context.currentTime
+    const gain = context.createGain()
+    gain.gain.setValueAtTime(0.0001, now)
+    gain.gain.exponentialRampToValueAtTime(0.09, now + 0.015)
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.34)
+    gain.connect(context.destination)
+    const oscillator = context.createOscillator()
+    oscillator.type = 'sine'
+    oscillator.frequency.setValueAtTime(784, now)
+    oscillator.frequency.exponentialRampToValueAtTime(988, now + 0.16)
+    oscillator.connect(gain)
+    oscillator.start(now)
+    oscillator.stop(now + 0.35)
+  } catch {}
+}
+
 /* ----------------------------- Water Break Hydration Reminder Modal ----------------------------- */
 function WaterBreakModal({
   open,
@@ -2437,6 +2484,7 @@ function WaterBreakModal({
   onlineSeconds: number
   onSnooze: (mins: number) => void
 }) {
+  const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | 'unsupported'>(() => typeof Notification === 'undefined' ? 'unsupported' : Notification.permission)
   if (!open) return null
 
   const intervalSec = (intervalMin || 30) * 60
@@ -2470,11 +2518,25 @@ function WaterBreakModal({
     onClose()
   }
 
-  const requestNotif = () => {
-    if (typeof Notification !== 'undefined') {
-      Notification.requestPermission().then(p => {
-        if (p === 'granted') toast.success('Desktop water popup notifications enabled!')
-      })
+  const requestNotif = async () => {
+    try {
+      const permission = await requestHydrationPermissions()
+      if (permission === 'unsupported') {
+        setNotificationPermission('unsupported')
+        toast.error('This browser does not support system notifications')
+        return
+      }
+      setNotificationPermission(permission)
+      if (permission === 'granted') {
+        playHydrationChime()
+        toast.success('Notifications and reminder sound enabled')
+      } else if (permission === 'denied') {
+        toast.error('Notifications are blocked. Allow them in browser site settings.')
+      } else {
+        toast('Notification permission was not granted yet')
+      }
+    } catch {
+      toast.error('Could not request notification permission')
     }
   }
 
@@ -2591,12 +2653,13 @@ function WaterBreakModal({
             </Button>
           </div>
 
-          {typeof Notification !== 'undefined' && Notification.permission !== 'granted' && (
+          {notificationPermission !== 'granted' && notificationPermission !== 'unsupported' && (
             <button
               onClick={requestNotif}
               className="text-[10px] text-sky-400/80 hover:text-sky-300 text-center mt-1 underline decoration-dotted"
+              aria-label="Enable system notifications and reminder sound"
             >
-              Enable browser popup notifications 🔔
+              Enable notifications + sound 🔔
             </button>
           )}
         </div>
@@ -2622,7 +2685,6 @@ function BentoNavModal({
     { key: 'tasks', title: 'Tasks', desc: 'TodoList & Priorities', icon: ListChecks, color: 'from-blue-500/20 to-indigo-500/10 border-blue-500/30 text-blue-400' },
     { key: 'cal', title: 'Calendar', desc: 'Google Calendar Sync', icon: Calendar, color: 'from-purple-500/20 to-pink-500/10 border-purple-500/30 text-purple-400' },
     { key: 'notes', title: 'Notes', desc: 'Markdown & Scratchpad', icon: StickyNote, color: 'from-emerald-500/20 to-teal-500/10 border-emerald-500/30 text-emerald-400' },
-    { key: 'canvas', title: 'Canvas', desc: 'Visual Node Flow', icon: PenTool, color: 'from-cyan-500/20 to-sky-500/10 border-cyan-500/30 text-cyan-400' },
     { key: 'music', title: 'Music', desc: 'Spotify Lofi Player', icon: Music2, color: 'from-green-500/20 to-emerald-500/10 border-green-500/30 text-green-400' },
     { key: 'stats', title: 'Stats', desc: 'Productivity Analytics', icon: BarChart2, color: 'from-amber-500/20 to-yellow-500/10 border-amber-500/30 text-amber-400' },
     { key: 'settings', title: 'Settings', desc: 'App & Audio Controls', icon: SettingsIcon, color: 'from-rose-500/20 to-red-500/10 border-rose-500/30 text-rose-400' },
@@ -2683,7 +2745,7 @@ function BentoNavModal({
   )
 }
 
-function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog, onOpenExtensionModal, onOpenCookieModal, onTestWater }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void, onOpenCookieModal: () => void, onTestWater: () => void }) {
+function SettingsPanel({ open, onClose, settings, setSettings, user, login, logout, connectSpotify, onOpenChangelog, onOpenExtensionModal, onOpenCookieModal, onTestWater, onEnableNotifications }: { open: boolean, onClose: () => void, settings: AppSettings, setSettings: (s: AppSettings) => void, user: User | null, login: () => void, logout: () => void, connectSpotify: () => void, onOpenChangelog: () => void, onOpenExtensionModal: () => void, onOpenCookieModal: () => void, onTestWater: () => void, onEnableNotifications: () => void }) {
   const upd = (k: keyof AppSettings, v: any) => setSettings({ ...settings, [k]: v })
   return (
     <Panel open={open} onClose={onClose} title="Settings" icon={<SettingsIcon className="h-4 w-4" />} width="max-w-xl">
@@ -2716,7 +2778,10 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
         </Section>
         <Section title="Hydration & Health Breaks">
           <Row label="Water Break Reminder (Active Time)">
-            <Switch checked={settings.waterReminder ?? true} onCheckedChange={v => upd('waterReminder', v)} />
+            <Switch checked={settings.waterReminder ?? true} onCheckedChange={v => {
+              upd('waterReminder', v)
+              if (v) onEnableNotifications()
+            }} />
           </Row>
           {(settings.waterReminder ?? true) && (
             <>
@@ -2726,10 +2791,15 @@ function SettingsPanel({ open, onClose, settings, setSettings, user, login, logo
               <Row label={`Daily Goal · ${settings.waterDailyGoal || 8} Glasses`}>
                 <Slider value={[settings.waterDailyGoal || 8]} min={4} max={16} step={1} onValueChange={v => upd('waterDailyGoal', v[0])} className="max-w-xs w-48" />
               </Row>
-              <div className="pt-2 flex items-center justify-between border-t border-white/5">
-                <span className="text-xs text-sky-300/80">Trigger popup after interval</span>
-                <Button variant="outline" size="sm" onClick={onTestWater} className="text-xs bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30">
-                  <Droplets className="h-3.5 w-3.5 mr-1" /> Test Water Reminder
+              <div className="pt-2 flex flex-col gap-2 border-t border-white/5">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-sky-300/80">Trigger popup after interval</span>
+                  <Button variant="outline" size="sm" onClick={onTestWater} className="text-xs bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30">
+                    <Droplets className="h-3.5 w-3.5 mr-1" /> Test Reminder
+                  </Button>
+                </div>
+                <Button variant="outline" size="sm" onClick={onEnableNotifications} className="w-full text-xs bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border-sky-500/30">
+                  <Bell className="h-3.5 w-3.5 mr-1" /> Enable Notifications + Sound
                 </Button>
               </div>
             </>
@@ -2953,6 +3023,7 @@ const App = () => {
   const showHydrationReminder = useCallback(() => {
     const intervalMin = settings.waterIntervalMin || 30
     setShowWaterReminder(true)
+    playHydrationChime()
     toast('Hydration break · take a sip of water', {
       id: 'hydration-reminder',
       duration: 10000,
@@ -3097,7 +3168,20 @@ const App = () => {
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {})
     }
-    return onAuthStateChanged(auth, (u) => setUser(u))
+    const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u))
+    getRedirectResult(auth)
+      .then((result) => {
+        if (!result) return
+        const credential = GoogleAuthProvider.credentialFromResult(result)
+        const token = credential?.accessToken ?? null
+        if (token) setGoogleToken(token)
+      })
+      .catch((error) => {
+        const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code || 'unknown') : 'unknown'
+        console.warn('Firebase redirect sign-in failed', code)
+        toast.error(getAuthFailureMessage(error))
+      })
+    return unsubscribe
   }, [])
 
   useEffect(() => {
@@ -3131,7 +3215,18 @@ const App = () => {
       }
       if (res.user && !settings.name) setSettings(s => ({ ...s, name: res.user.displayName || '' }))
     } catch (err) {
-      toast.error('Sign in failed')
+      const code = typeof err === 'object' && err !== null && 'code' in err ? String((err as { code?: unknown }).code || 'unknown') : 'unknown'
+      console.warn('Firebase sign-in failed', code)
+      if (code.includes('auth/popup-blocked')) {
+        try {
+          await signInWithRedirect(auth, googleProvider)
+          return
+        } catch (redirectError) {
+          toast.error(getAuthFailureMessage(redirectError))
+          return
+        }
+      }
+      toast.error(getAuthFailureMessage(err))
     }
   }
 
@@ -3215,7 +3310,6 @@ const App = () => {
       const k = e.key.toLowerCase()
       if (k === 'escape') return setOpen(null)
       if (k === 'n') setOpen('notes')
-      else if (k === 'v') setOpen('canvas')
       else if (k === 't') setOpen('tasks')
       else if (k === 's') setOpen('stats')
       else if (k === 'p') setOpen('pomo')
@@ -3283,12 +3377,6 @@ const App = () => {
                 className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'notes' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
               >
                 Notes
-              </button>
-              <button
-                onClick={() => setOpen('canvas')}
-                className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${open === 'canvas' ? 'bg-[#e8702a] text-white font-semibold shadow-md shadow-[#e8702a]/30' : 'text-white/80 hover:bg-white/20 hover:text-white'}`}
-              >
-                Canvas
               </button>
               <button
                 onClick={() => setOpen('music')}
@@ -3447,7 +3535,6 @@ const App = () => {
           pomoMode={pomoMode}
         />}
         {open === 'notes' && <NotesPanel open onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />}
-        {open === 'canvas' && <CanvasNotesWorkspacePanel open onClose={() => setOpen(null)} user={user} />}
         {open === 'tasks' && <ChecklistPanel open onClose={() => setOpen(null)} user={user} googleToken={googleToken} setGoogleToken={setGoogleToken} />}
         {open === 'pomo' && <PomodoroPanel
           open
@@ -3470,7 +3557,17 @@ const App = () => {
         />}
         {open === 'cal' && <CalendarPanel open onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />}
         {open === 'music' && <SpotifyPanel open onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />}
-        {open === 'settings' && <SettingsPanel open onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} onTestWater={() => setShowWaterReminder(true)} />}
+        {open === 'settings' && <SettingsPanel open onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} onTestWater={() => setShowWaterReminder(true)} onEnableNotifications={async () => {
+          const permission = await requestHydrationPermissions()
+          if (permission === 'granted') {
+            playHydrationChime()
+            toast.success('Notifications and reminder sound enabled')
+          } else if (permission === 'denied') {
+            toast.error('Notifications are blocked. Allow them in browser site settings.')
+          } else {
+            toast.error('This browser does not support system notifications')
+          }
+        }} />}
         {open === 'extension' && <ChromeExtensionModal open={open === 'extension'} onClose={() => setOpen(null)} />}
         <CookieBanner openModal={cookieModalOpen} onCloseModal={() => setCookieModalOpen(false)} />
         <WaterBreakModal

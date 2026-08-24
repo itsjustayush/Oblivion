@@ -87,28 +87,6 @@ service cloud.firestore {
           && boundedString(request.resource.data.day, 12);
       }
 
-      match /canvas/{canvasId} {
-        allow read, delete: if isOwner(userId);
-        allow create, update: if isOwner(userId)
-          && canvasId == 'data'
-          && request.resource.data.keys().hasOnly(['artifacts', 'selectedId', 'zoom', 'boardOffset', 'editorWidth', 'updatedAt'])
-          && request.resource.data.artifacts is list
-          && request.resource.data.artifacts.size() <= 200
-          && boundedString(request.resource.data.selectedId, 200)
-          && request.resource.data.zoom is number
-          && request.resource.data.zoom >= 0.1
-          && request.resource.data.zoom <= 4
-          && request.resource.data.boardOffset is map
-          && request.resource.data.boardOffset.keys().hasOnly(['x', 'y'])
-          && request.resource.data.boardOffset.x is number
-          && request.resource.data.boardOffset.y is number
-          && request.resource.data.editorWidth is number
-          && request.resource.data.editorWidth >= 240
-          && request.resource.data.editorWidth <= 1000
-          && request.resource.data.updatedAt is number
-          && request.resource.data.updatedAt >= 0;
-      }
-
       match /integrations/{integrationId} {
         allow read, delete: if isOwner(userId);
         allow create, update: if isOwner(userId)
