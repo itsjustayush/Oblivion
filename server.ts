@@ -1,6 +1,7 @@
 import express, { type Request, type Response, type NextFunction } from "express";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { randomBytes } from "crypto";
 
 const quotes = [
   { q: "The cave you fear to enter holds the treasure you seek.", a: "Joseph Campbell" },
@@ -18,9 +19,13 @@ const quotes = [
 const PORT = 3000;
 const MAX_MONITORS = 20;
 const STATUS_CACHE_TTL_MS = 60_000;
+const OAUTH_STATE_TTL_MS = 10 * 60_000;
+const OAUTH_TRANSACTION_TTL_MS = 5 * 60_000;
 
 type RateBucket = { startedAt: number; count: number };
 const rateBuckets = new Map<string, RateBucket>();
+const spotifyStates = new Map<string, { redirectUri: string; createdAt: number }>();
+const spotifyTransactions = new Map<string, { tokens: Record<string, unknown>; createdAt: number }>();
 let statusCache: { expiresAt: number; payload: unknown } | null = null;
 
 function clientAddress(req: Request) {
@@ -47,13 +52,65 @@ function rateLimit(maxRequests: number, windowMs: number) {
 
 function pruneEphemeralState() {
   const now = Date.now();
+  for (const [state, value] of spotifyStates) {
+    if (now - value.createdAt > OAUTH_STATE_TTL_MS) spotifyStates.delete(state);
+  }
+  for (const [transaction, value] of spotifyTransactions) {
+    if (now - value.createdAt > OAUTH_TRANSACTION_TTL_MS) spotifyTransactions.delete(transaction);
+  }
   for (const [key, value] of rateBuckets) {
     if (now - value.startedAt > 10 * 60_000) rateBuckets.delete(key);
   }
 }
 
+function configuredAppUrl(req?: Request) {
+  const configured = process.env.APP_URL?.trim();
+  if (configured) {
+    const parsed = new URL(configured);
+    if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+      throw new Error("APP_URL must use HTTPS outside local development");
+    }
+    return parsed.origin;
+  }
+  if (process.env.NODE_ENV !== "production") return `http://localhost:${PORT}`;
+  throw new Error("APP_URL is required in production");
+}
+
+function safeJsonForHtml(value: unknown) {
+  return JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026")
+    .replaceAll("\u2028", "\\u2028")
+    .replaceAll("\u2029", "\\u2029");
+}
+
 function requireNonEmptyString(value: unknown, maxLength: number): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= maxLength;
+}
+
+async function exchangeSpotifyCode(code: string, redirectUri: string) {
+  const clientId = process.env.SPOTIFY_CLIENT_ID;
+  const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+  if (!clientId || !clientSecret) throw new Error("Spotify credentials not configured");
+
+  const response = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "Authorization": "Basic " + Buffer.from(`${clientId}:${clientSecret}`).toString("base64")
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri
+    }),
+    signal: AbortSignal.timeout(10_000)
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.error) throw new Error("Spotify token exchange failed");
+  return data as Record<string, unknown>;
 }
 
 async function getStatusPayload() {
@@ -182,7 +239,7 @@ async function startServer() {
     res.setHeader("Origin-Agent-Cluster", "?1");
     res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
     res.setHeader("Permissions-Policy", "camera=(), microphone=(), payment=(), usb=()");
-    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' https://apis.google.com https://accounts.google.com https://www.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.unsplash.com https://images.higgs.ai https://*.cloudfront.net https://lh3.googleusercontent.com; font-src 'self' data:; connect-src 'self' https://nominatim.openstreetmap.org https://api.open-meteo.com https://tasks.googleapis.com https://www.googleapis.com https://apis.google.com https://accounts.google.com https://*.googleapis.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com; frame-src https://open.spotify.com https://*.firebaseapp.com https://accounts.google.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests");
+    res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self' https://apis.google.com https://accounts.google.com https://www.gstatic.com https://sdk.scdn.co; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://images.unsplash.com https://images.higgs.ai https://*.cloudfront.net https://lh3.googleusercontent.com; font-src 'self' data:; connect-src 'self' https://nominatim.openstreetmap.org https://api.open-meteo.com https://tasks.googleapis.com https://www.googleapis.com https://apis.google.com https://accounts.google.com https://api.spotify.com https://accounts.spotify.com https://*.googleapis.com https://*.spotify.com wss://*.spotify.com https://*.firebaseio.com wss://*.firebaseio.com https://*.firebaseapp.com; frame-src https://open.spotify.com https://*.firebaseapp.com https://accounts.google.com; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests");
     res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
     next();
   });
@@ -216,6 +273,105 @@ async function startServer() {
   app.get("/api/quotes", (_req, res) => {
     const randomQuote = quotes[Math.floor(Math.random() * quotes.length)];
     res.json(randomQuote);
+  });
+
+  app.get("/api/auth/spotify/url", rateLimit(10, 60_000), (req, res) => {
+    const clientId = process.env.SPOTIFY_CLIENT_ID;
+    if (!clientId) return res.status(500).json({ error: "Spotify Client ID not configured" });
+    try {
+      const appUrl = configuredAppUrl(req);
+      const redirectUri = `${appUrl}/auth/spotify/callback`;
+      const state = randomBytes(32).toString("base64url");
+      spotifyStates.set(state, { redirectUri, createdAt: Date.now() });
+      const params = new URLSearchParams({
+        client_id: clientId,
+        response_type: "code",
+        redirect_uri: redirectUri,
+        state,
+        scope: "user-read-private user-read-email playlist-read-private user-modify-playback-state user-read-playback-state",
+        show_dialog: "true"
+      });
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ url: `https://accounts.spotify.com/authorize?${params}` });
+    } catch {
+      res.status(500).json({ error: "OAuth configuration is invalid" });
+    }
+  });
+
+  app.post("/api/auth/spotify/token", rateLimit(10, 60_000), async (req, res) => {
+    const { code, state } = req.body ?? {};
+    if (!requireNonEmptyString(code, 2_048) || !requireNonEmptyString(state, 512)) {
+      return res.status(400).json({ error: "Invalid authorization request" });
+    }
+    const stateRecord = spotifyStates.get(state);
+    spotifyStates.delete(state);
+    if (!stateRecord || Date.now() - stateRecord.createdAt > OAUTH_STATE_TTL_MS) {
+      return res.status(400).json({ error: "Invalid or expired OAuth state" });
+    }
+    try {
+      const data = await exchangeSpotifyCode(code, stateRecord.redirectUri);
+      res.setHeader("Cache-Control", "no-store");
+      res.json(data);
+    } catch {
+      res.status(400).json({ error: "Failed to exchange authorization code" });
+    }
+  });
+
+  app.post("/api/auth/spotify/session", rateLimit(20, 60_000), (req, res) => {
+    const { transactionId } = req.body ?? {};
+    if (!requireNonEmptyString(transactionId, 128)) return res.status(400).json({ error: "Invalid transaction" });
+    const transaction = spotifyTransactions.get(transactionId);
+    spotifyTransactions.delete(transactionId);
+    if (!transaction || Date.now() - transaction.createdAt > OAUTH_TRANSACTION_TTL_MS) {
+      return res.status(400).json({ error: "Invalid or expired transaction" });
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(transaction.tokens);
+  });
+
+  app.get("/auth/spotify/callback", async (req, res) => {
+    const state = typeof req.query.state === "string" ? req.query.state : "";
+    const code = typeof req.query.code === "string" ? req.query.code : "";
+    const stateRecord = spotifyStates.get(state);
+    spotifyStates.delete(state);
+    let origin = "null";
+    let message: Record<string, unknown> = { type: "SPOTIFY_AUTH_ERROR" };
+
+    try {
+      origin = new URL(stateRecord?.redirectUri || configuredAppUrl()).origin;
+    } catch {
+      origin = "null";
+    }
+
+    if (stateRecord && Date.now() - stateRecord.createdAt <= OAUTH_STATE_TTL_MS && requireNonEmptyString(code, 2_048)) {
+      try {
+        const tokens = await exchangeSpotifyCode(code, stateRecord.redirectUri);
+        const transactionId = randomBytes(32).toString("base64url");
+        spotifyTransactions.set(transactionId, { tokens, createdAt: Date.now() });
+        message = { type: "SPOTIFY_AUTH_SUCCESS", transactionId };
+      } catch {
+        message = { type: "SPOTIFY_AUTH_ERROR" };
+      }
+    }
+
+    const nonce = randomBytes(16).toString("base64");
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("Content-Security-Policy", `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; frame-ancestors 'none'`);
+    res.status(message.type === "SPOTIFY_AUTH_SUCCESS" ? 200 : 400).send(`
+      <!doctype html>
+      <html lang="en"><head><meta charset="utf-8"><title>Connecting Spotify</title></head>
+      <body style="background:#121212;color:white;font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh">
+        <script nonce="${nonce}">
+          const message = ${safeJsonForHtml(message)};
+          const targetOrigin = ${safeJsonForHtml(origin)};
+          if (window.opener && targetOrigin !== "null") {
+            window.opener.postMessage(message, targetOrigin);
+            window.close();
+          }
+        </script>
+        <div style="text-align:center"><h2>Connecting Spotify...</h2><p>This window should close automatically.</p></div>
+      </body></html>
+    `);
   });
 
   if (process.env.NODE_ENV !== "production") {

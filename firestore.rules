@@ -87,6 +87,19 @@ service cloud.firestore {
           && boundedString(request.resource.data.day, 12);
       }
 
+      match /integrations/{integrationId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId)
+          && integrationId == 'spotify'
+          && request.resource.data.keys().hasOnly(['access_token', 'token_type', 'expires_in', 'refresh_token', 'scope', 'updatedAt'])
+          && boundedString(request.resource.data.access_token, 4096)
+          && (!('token_type' in request.resource.data) || boundedString(request.resource.data.token_type, 40))
+          && (!('expires_in' in request.resource.data) || (request.resource.data.expires_in is number && request.resource.data.expires_in >= 0 && request.resource.data.expires_in <= 86400))
+          && (!('refresh_token' in request.resource.data) || boundedString(request.resource.data.refresh_token, 4096))
+          && (!('scope' in request.resource.data) || boundedString(request.resource.data.scope, 2000))
+          && request.resource.data.updatedAt is number
+          && request.resource.data.updatedAt >= 0;
+      }
     }
 
     // Deny every undeclared collection and subcollection by default.
