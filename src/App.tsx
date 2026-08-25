@@ -2995,6 +2995,7 @@ const App = () => {
 
   const [settings, setSettings] = useSynced<AppSettings>('oblivion.settings', DEFAULT_SETTINGS, user)
   const [open, setOpen] = useState<string | null>(null)
+  const [musicMounted, setMusicMounted] = useState(false)
   const [cookieModalOpen, setCookieModalOpen] = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [playlistId, setPlaylistId] = useState(PLAYLISTS[0].id)
@@ -3156,6 +3157,10 @@ const App = () => {
       setPomoMode('focus')
     }
   }, [pomoMode, pomoCycles, setPomoCycles, user, pomoFocusMin])
+
+  useEffect(() => {
+    if (open === 'music') setMusicMounted(true)
+  }, [open])
 
   useEffect(() => {
     setMounted(true)
@@ -3530,7 +3535,7 @@ const App = () => {
           onComplete={handlePomoComplete}
         />}
         {open === 'cal' && <CalendarPanel open onClose={() => setOpen(null)} user={user} gEvents={gEvents} setGEvents={setGEvents} googleToken={googleToken} setGoogleToken={setGoogleToken} />}
-        {open === 'music' && <SpotifyPanel open onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />}
+        {(open === 'music' || musicMounted) && <SpotifyPanel open={open === 'music'} onClose={() => setOpen(null)} playlistId={playlistId} setPlaylistId={setPlaylistId} connectSpotify={connectSpotify} user={user} />}
         {open === 'settings' && <SettingsPanel open onClose={() => setOpen(null)} settings={settings} setSettings={setSettings} user={user} login={login} logout={logout} connectSpotify={connectSpotify} onOpenChangelog={() => setOpen('changelogs')} onOpenExtensionModal={() => setOpen('extension')} onOpenCookieModal={() => setCookieModalOpen(true)} onTestWater={() => setShowWaterReminder(true)} onEnableNotifications={async () => {
           const permission = await requestHydrationPermissions()
           if (permission === 'granted') {
