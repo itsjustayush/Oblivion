@@ -3225,40 +3225,48 @@ const App = () => {
   }
 
   useEffect(() => {
-    const handleMessage = async (e: MessageEvent) => {
-      // The callback is same-origin with the app and must come from the popup we opened.
-      if (e.origin !== window.location.origin || e.source !== spotifyPopupRef.current) return
-      if (e.data?.type !== 'SPOTIFY_AUTH_SUCCESS') return
-      if (typeof e.data.tokens !== 'object' && typeof e.data.transactionId !== 'string') return
-
+    let processed = false
+    const handleSpotifyAuth = async (payload: any) => {
+      if (processed || payload?.type !== 'SPOTIFY_AUTH_SUCCESS') return
+      if (typeof payload.tokens !== 'object' && typeof payload.transactionId !== 'string') return
+      processed = true
       spotifyPopupRef.current = null
       toast('Syncing with Spotify...', { icon: '🎵' })
       try {
-        let tokens = e.data.tokens as Record<string, unknown> | undefined
+        let tokens = payload.tokens as Record<string, unknown> | undefined
         if (!tokens) {
           const response = await fetch('/api/auth/spotify/session', {
             method: 'POST',
             cache: 'no-store',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ transactionId: e.data.transactionId })
+            body: JSON.stringify({ transactionId: payload.transactionId })
           })
           if (!response.ok) throw new Error('Spotify session exchange failed')
           tokens = await response.json()
         }
-
-        if (typeof tokens?.access_token === 'string' && user) {
-          await setDoc(doc(db, 'users', user.uid, 'integrations', 'spotify'), {
-            ...tokens,
-            updatedAt: Date.now()
-          })
-          toast.success('Spotify connected successfully')
-        }
+        if (typeof tokens?.access_token !== 'string' || !user) throw new Error('Spotify token payload was invalid')
+        await setDoc(doc(db, 'users', user.uid, 'integrations', 'spotify'), {
+          ...tokens,
+          updatedAt: Date.now()
+        })
+        toast.success('Spotify connected successfully')
       } catch {
         toast.error('Failed to link Spotify account')
       }
     }
+    const handleMessage = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin || e.source !== spotifyPopupRef.current) return
+      void handleSpotifyAuth(e.data)
+    }
+    const channel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('oblivion-spotify-auth') : null
+    const handleChannelMessage = (e: MessageEvent) => { void handleSpotifyAuth(e.data) }
     window.addEventListener('message', handleMessage)
-    return () => window.removeEventListener('message', handleMessage)
+    channel?.addEventListener('message', handleChannelMessage)
+    return () => {
+      window.removeEventListener('message', handleMessage)
+      channel?.removeEventListener('message', handleChannelMessage)
+      channel?.close()
+    }
   }, [user])
 
   const toggleFullscreen = useCallback(() => {

@@ -67,6 +67,8 @@ export default async function handler(req: any, res: any) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Set-Cookie', `${STATE_COOKIE}=; Max-Age=0; Path=/; Secure; HttpOnly; SameSite=Lax`);
   res.setHeader('Content-Security-Policy', `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; frame-ancestors 'none'`);
-  const status = message.type === 'SPOTIFY_AUTH_SUCCESS' ? 200 : 400;
-  return res.status(status).send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Spotify connection</title></head><body><script nonce="${nonce}">const message=${escapeJson(message)};const targetOrigin=${escapeJson(origin)};if(window.opener&&targetOrigin!=="null"){window.opener.postMessage(message,targetOrigin);window.close();}</script><p>Spotify connection completed. You may close this window.</p></body></html>`);
+  const succeeded = message.type === 'SPOTIFY_AUTH_SUCCESS';
+  const status = succeeded ? 200 : 400;
+  const text = succeeded ? 'Spotify connection completed. You may close this window.' : 'Spotify connection could not be completed. You may close this window and try again.';
+  return res.status(status).send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Spotify connection</title></head><body><script nonce="${nonce}">const message=${escapeJson(message)};const targetOrigin=${escapeJson(origin)};try{if(typeof BroadcastChannel!=="undefined"){const channel=new BroadcastChannel("oblivion-spotify-auth");channel.postMessage(message);setTimeout(()=>channel.close(),1000);}}catch{}if(window.opener&&targetOrigin!=="null"){const deliver=()=>window.opener?.postMessage(message,targetOrigin);deliver();setTimeout(deliver,200);setTimeout(deliver,800);setTimeout(()=>window.close(),1000);}</script><p>${text}</p></body></html>`);
 }
