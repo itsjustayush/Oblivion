@@ -89,7 +89,6 @@ const $ = (id) => document.getElementById(id);
         const data = await response.json();
         const services = Array.isArray(data.services) ? data.services : [];
         setOverall(data.status, data.updatedAt); makeOverview(data, services, live); renderServices(services); renderIncidents(data.incidents);
-        $('provider').textContent = live ? 'Better Stack API' : 'Static fallback';
         $('provider').className = live ? 'source-pill' : 'source-pill fallback';
         $('provider').textContent = live ? 'Live Better Stack' : 'Fallback snapshot';
         $('fetch-time').textContent = new Date().toLocaleTimeString();

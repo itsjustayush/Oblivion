@@ -5,9 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#08111f">
   <meta name="description" content="Oblivion system status and service health dashboard">
+  <link rel="canonical" href="https://oblivionstudy.vercel.app/status.html">
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
-  <title>Oblivion Status · Service health</title>
+  <title>Oblivion Status · Service Health &amp; Telemetry</title>
   <link rel="stylesheet" href="/status.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    "name": "Oblivion Status · Service Health & Telemetry",
+    "url": "https://oblivionstudy.vercel.app/status.html",
+    "description": "Live uptime monitoring, telemetry, Better Stack monitor status, and incident logs for Oblivion.",
+    "breadcrumb": {
+      "@type": "BreadcrumbList",
+      "itemListElement": [
+        {
+          "@type": "ListItem",
+          "position": 1,
+          "name": "Oblivion Home",
+          "item": "https://oblivionstudy.vercel.app/"
+        },
+        {
+          "@type": "ListItem",
+          "position": 2,
+          "name": "System Status",
+          "item": "https://oblivionstudy.vercel.app/status.html"
+        }
+      ]
+    },
+    "publisher": {
+      "@type": "Organization",
+      "name": "Oblivion Study",
+      "url": "https://oblivionstudy.vercel.app/",
+      "logo": "https://oblivionstudy.vercel.app/icon-512.png"
+    }
+  }
+  </script>
 </head>
 <body>
   <main class="shell">
@@ -25,8 +58,8 @@
     <section class="hero" aria-labelledby="page-title">
       <div>
         <div class="eyebrow">Service health · live telemetry</div>
-        <h1 id="page-title">Know what’s working before you start.</h1>
-        <p class="lede">A calm, transparent view of the services that power your focus workspace. Live monitoring is fetched from Better Stack whenever the API is available.</p>
+        <h1 id="page-title">Oblivion System Status &amp; Service Health</h1>
+        <p class="lede">Know what’s working before you start. A calm, transparent view of the services that power your focus workspace. Live monitoring is fetched from Better Stack whenever the API is available.</p>
       </div>
       <aside class="status-badge" aria-live="polite">
         <div class="label">Current status</div>
@@ -55,7 +88,14 @@
       </div>
     </section>
 
-    <footer><span>Oblivion status · data is sanitized before rendering</span><a href="https://github.com/itsjustayush/Oblivion" rel="noopener noreferrer">View source</a></footer>
+    <footer>
+      <span>Oblivion status · data is sanitized before rendering</span>
+      <div style="display:flex;gap:1rem;">
+        <a href="/">Workspace</a>
+        <a href="/llms.txt">LLM Reference</a>
+        <a href="https://github.com/itsjustayush/Oblivion" rel="noopener noreferrer">Source Code</a>
+      </div>
+    </footer>
   </main>
 
   <script src="/status.js" defer></script>

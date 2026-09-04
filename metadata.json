@@ -2,5 +2,5 @@
   "name": "Oblivion",
   "description": "Oblivion is a minimalist, ambient focus space and Pomodoro study timer with integrated Spotify playlists, live weather, tasks, and productivity analytics.",
   "requestFramePermissions": ["geolocation"],
-  "majorCapabilities": []
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

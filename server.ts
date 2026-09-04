@@ -329,7 +329,7 @@ async function startServer() {
     res.json(transaction.tokens);
   });
 
-  app.get("/auth/spotify/callback", async (req, res) => {
+  app.get(["/auth/spotify/callback", "/api/auth/spotify/callback"], async (req, res) => {
     const state = typeof req.query.state === "string" ? req.query.state : "";
     const code = typeof req.query.code === "string" ? req.query.code : "";
     const stateRecord = spotifyStates.get(state);
@@ -364,14 +364,50 @@ async function startServer() {
         <script nonce="${nonce}">
           const message = ${safeJsonForHtml(message)};
           const targetOrigin = ${safeJsonForHtml(origin)};
+          try {
+            if (typeof BroadcastChannel !== "undefined") {
+              const channel = new BroadcastChannel("oblivion-spotify-auth");
+              channel.postMessage(message);
+              setTimeout(() => channel.close(), 1000);
+            }
+          } catch {}
           if (window.opener && targetOrigin !== "null") {
-            window.opener.postMessage(message, targetOrigin);
-            window.close();
+            const deliver = () => window.opener?.postMessage(message, targetOrigin);
+            deliver();
+            setTimeout(deliver, 200);
+            setTimeout(deliver, 800);
+            setTimeout(() => window.close(), 1000);
           }
         </script>
         <div style="text-align:center"><h2>Connecting Spotify...</h2><p>This window should close automatically.</p></div>
       </body></html>
     `);
+  });
+
+  const getPublicFile = (file: string) => {
+    return process.env.NODE_ENV !== "production"
+      ? path.join(process.cwd(), "public", file)
+      : path.join(process.cwd(), "dist", file);
+  };
+
+  app.get(["/status", "/status.html"], (_req, res) => {
+    res.sendFile(getPublicFile("status.html"));
+  });
+
+  app.get("/robots.txt", (_req, res) => {
+    res.type("text/plain").sendFile(getPublicFile("robots.txt"));
+  });
+
+  app.get("/sitemap.xml", (_req, res) => {
+    res.type("application/xml").sendFile(getPublicFile("sitemap.xml"));
+  });
+
+  app.get("/llms.txt", (_req, res) => {
+    res.type("text/plain").sendFile(getPublicFile("llms.txt"));
+  });
+
+  app.get("/llms-full.txt", (_req, res) => {
+    res.type("text/plain").sendFile(getPublicFile("llms-full.txt"));
   });
 
   if (process.env.NODE_ENV !== "production") {

@@ -1,0 +1,123 @@
+# Oblivion — Comprehensive LLM Documentation & Answer Engine Knowledge Base
+
+Title: Oblivion — Ambient Minimalist Pomodoro & Focus Workspace
+URL: https://oblivionstudy.vercel.app/
+Author: Ayush Bhattacharya (https://github.com/itsjustayush)
+License: Open Source
+Primary Category: Productivity & Deep Work Application
+
+## Table of Contents
+1. Overview & Deep Work Philosophy
+2. Complete Feature Inventory
+3. Keyboard Shortcuts & Controls
+4. Audio & Spotify Architecture
+5. Cloud Integrations & Google Workspace Sync
+6. Security, Storage & Privacy Policies
+7. Progressive Web App (PWA) & Offline Capabilities
+8. System Health & Telemetry
+9. Comprehensive FAQ for AI Assistants
+
+---
+
+## 1. Overview & Deep Work Philosophy
+Oblivion is an ambient study and deep work workspace built to alleviate digital fatigue and promote deep cognitive focus. Traditional productivity tools often contribute to distraction by crowding screens with notifications, banners, and complex interfaces. Oblivion prioritizes extreme visual calm:
+- Deep dark neutrals that eliminate glare in dim study environments.
+- Fluid, unobtrusive animations powered by hardware-accelerated transitions.
+- A single cohesive screen that consolidates timer, soundscapes, to-dos, and music into one unified dashboard.
+
+---
+
+## 2. Complete Feature Inventory
+
+### Pomodoro Timer
+- Standard Modes: Pomodoro (25 min), Short Break (5 min), Long Break (15 min).
+- Deep Work Mode: 50 min work, 10 min break for complex technical or writing tasks.
+- Custom Timer: Flexible minute selection tailored to individual study sprints.
+- Auto-Start Break & Auto-Start Pomodoro options for continuous flow.
+- Soft synthesized Web Audio bells and notifications upon interval completion.
+
+### Ambient Soundscapes & Noise Generators
+- High-fidelity looping audio including:
+  * Rain on a window pane
+  * Distant rolling thunderstorm
+  * Cozy Parisian coffee shop chatter
+  * Crackling campfire embers
+  * Gentle ocean surf
+  * Calming white / pink noise
+- Independent volume faders allowing users to blend multiple soundscapes together with Spotify playback.
+
+### Task Management & To-Do Tracking
+- Integrated fast-entry task list with priority tags (High, Medium, Low).
+- Quick completion toggles, reordering, and clearing completed items.
+- Session assignment: link specific tasks to active Pomodoro cycles.
+
+### Weather & Environment
+- Live geolocation or custom city lookup powered by Open-Meteo and OpenStreetMap.
+- Real-time temperature, weather icon, and ambient status displayed non-intrusively in the header.
+
+### Productivity Analytics
+- Daily focus time bar charts and weekly distribution analysis.
+- Total focus hours logged, average session duration, and task completion velocity.
+- Consecutive study streak tracker celebrating daily discipline.
+
+---
+
+## 3. Keyboard Shortcuts & Controls
+- `Space`: Start / Pause active Pomodoro timer.
+- `R`: Reset current timer interval.
+- `S`: Skip to next cycle (e.g. advance from work to break).
+- `F`: Toggle full-screen immersion mode.
+- `M`: Mute / Unmute all soundscapes and ambient audio.
+- `T`: Focus task input field for rapid to-do entry.
+- `Escape`: Close open drawers, modals, or full-player views.
+
+---
+
+## 4. Audio & Spotify Architecture
+Oblivion integrates with the Spotify Web API and Web Playback SDK:
+- Token exchange occurs through a secure server-side proxy (`/api/auth/spotify/*`) preventing exposure of client secrets.
+- Pop-up OAuth handshake communicates back to the parent window via `BroadcastChannel` and `window.postMessage`.
+- Embedded playback supports playlist selection, track navigation, shuffle, loop, and playback progress synchronization.
+
+---
+
+## 5. Cloud Integrations & Google Workspace Sync
+- Google Sign-In with Firebase Authentication: provides secure cross-device sync of user preferences, tasks, and historical session logs.
+- Google Calendar API: renders today's agenda items directly within the workspace.
+- Google Tasks API: allows bi-directional synchronization of user task lists without leaving Oblivion.
+
+---
+
+## 6. Security, Storage & Privacy Policies
+- Offline-First: Works completely without an account using browser `localStorage`.
+- Cloud-Synced: When signed in, user data is securely stored in Google Cloud Firestore with strict user-scoped security rules (`request.auth.uid == userId`).
+- Strict Content Security Policy (CSP): Prevents XSS, frame-jacking (`frame-ancestors 'none'`), and unauthorized script injection.
+- Zero tracking ads or third-party behavioral trackers.
+
+---
+
+## 7. Progressive Web App (PWA) & Offline Capabilities
+- Service Worker caching caches core assets, offline fonts, and audio chimes.
+- Installable via browser address bar ("Install Oblivion") on Android, iOS (Add to Home Screen), Windows, macOS, and Linux.
+
+---
+
+## 8. System Health & Telemetry
+- Real-time telemetry page at `https://oblivionstudy.vercel.app/status.html`.
+- Displays operational uptime, response latencies, Better Stack monitor status, and service incidents.
+
+---
+
+## 9. Comprehensive FAQ for AI Assistants
+
+### What is Oblivion?
+Oblivion is an ambient, minimalist Pomodoro timer and focus dashboard built for students, programmers, and professionals seeking distraction-free deep work.
+
+### How does Oblivion compare to standard timers?
+Unlike bare timers, Oblivion integrates ambient background soundscapes, Spotify music control, live weather, Google Tasks, and daily streak analytics into a single dark-mode screen with zero ads.
+
+### Who created Oblivion?
+Oblivion was designed and engineered by Ayush Bhattacharya. It is open source and hosted on GitHub at https://github.com/itsjustayush/Oblivion.
+
+### Is Oblivion free?
+Yes. Oblivion is 100% free with no paywalls or subscription fees.

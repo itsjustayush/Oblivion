@@ -1,0 +1,46 @@
+# Robots.txt for Oblivion (https://oblivionstudy.vercel.app/)
+User-agent: *
+Allow: /
+Allow: /status
+Allow: /status.html
+Allow: /llms.txt
+Allow: /llms-full.txt
+Allow: /sitemap.xml
+Allow: /site.webmanifest
+Disallow: /api/auth/spotify/callback
+Disallow: /auth/spotify/callback
+
+# AI & Answer Engine Crawlers
+User-agent: GPTBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: ClaudeBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: PerplexityBot
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: Google-Extended
+Allow: /
+Allow: /llms.txt
+Allow: /llms-full.txt
+
+User-agent: Applebot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Cohere-ai
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://oblivionstudy.vercel.app/sitemap.xml

@@ -179,9 +179,9 @@ export const ChangelogView: React.FC<ChangelogViewProps> = ({
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-500/10 border border-orange-500/20 text-orange-400 text-xs font-semibold mb-4">
               <Sparkles className="h-3.5 w-3.5" /> Product Updates & Logs
             </div>
-            <h1 className="mb-4 text-3xl font-extrabold tracking-tight md:text-5xl text-white">
+            <h2 className="mb-4 text-3xl font-extrabold tracking-tight md:text-5xl text-white">
               {title}
-            </h1>
+            </h2>
             <p className="text-base text-zinc-400 md:text-lg leading-relaxed">
               {description}
             </p>

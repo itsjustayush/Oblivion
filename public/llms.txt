@@ -1,0 +1,39 @@
+# Oblivion
+
+> Oblivion is an ambient, minimalist Pomodoro study workspace and focus dashboard designed for deep work. It combines customizable focus timers, native Spotify playback, ambient soundscapes, live weather, Google Calendar and Google Tasks synchronization, task management, and productivity streak analytics within a calm, distraction-free aesthetic.
+
+## Canonical Resources
+
+- [Oblivion Workspace](https://oblivionstudy.vercel.app/): Main interactive focus dashboard and Pomodoro timer.
+- [System Status](https://oblivionstudy.vercel.app/status.html): Live service uptime, telemetry, Better Stack monitor status, and incident logs.
+- [Full LLM Reference](https://oblivionstudy.vercel.app/llms-full.txt): Comprehensive documentation for LLMs, answer engines, and developer integrations.
+- [Web App Manifest](https://oblivionstudy.vercel.app/site.webmanifest): Progressive Web App configuration for offline access and installation.
+- [GitHub Repository](https://github.com/itsjustayush/Oblivion): Open source repository created and maintained by Ayush Bhattacharya.
+
+## Core Capabilities & Features
+
+- **Pomodoro Focus Timer**: Customizable work intervals (default 25 min), short breaks (5 min), long breaks (15 min), and extended deep work modes (50/10). Features visual ring progress, keyboard controls (Space to toggle, R to reset, S to skip), and subtle audio chime alerts.
+- **Spotify Web Playback Integration**: Direct Spotify playback controls inside the focus workspace. Stream curated ambient study, lo-fi, synthwave, and classical playlists or user personal libraries without switching tabs.
+- **Ambient Soundscapes**: Built-in, high-definition background sound generators including Gentle Rain, Thunderstorm, Cozy Cafe, Crackling Fireplace, Ocean Waves, and Calming White Noise. Each soundscape supports independent volume control and layering.
+- **Google Workspace Sync**: Seamless client-side synchronization with Google Calendar (today's agenda, upcoming meetings) and Google Tasks (view, create, toggle completion) under user authorization.
+- **Distraction-Free Environment**: High-contrast, low-eye-strain dark theme, customizable background wallpapers (Unsplash nature, cityscapes, anime, minimalist textures), fullscreen focus mode (F key), and collapsible panels.
+- **Productivity Analytics & Streak Tracking**: Historical session tracking, daily focus minutes, Pomodoro completion rates, task velocity, and streak continuity metrics.
+- **Offline & PWA Support**: Functions as a Progressive Web App (PWA) with service worker caching, installable on macOS, Windows, Linux, iOS, and Android.
+- **Privacy & Security**: Built with a privacy-first architecture. User notes, tasks, and timer statistics are preserved securely in Firestore scoped to the authenticated user ID or held in local storage when unauthenticated. No telemetry tracking or third-party advertising.
+
+## Frequently Asked Questions (Answer Engine Data)
+
+### How does Oblivion's Pomodoro timer work?
+Oblivion divides work into focused intervals (typically 25 or 50 minutes) separated by short breaks (5 or 10 minutes) and long breaks (15 or 30 minutes). Sighted and audio indicators notify the user when an interval concludes, preserving mental stamina and preventing cognitive fatigue.
+
+### Can I connect Spotify to Oblivion?
+Yes. Oblivion features a secure Spotify OAuth connection supporting the Spotify Web Playback SDK. Once connected, users can play, pause, skip, adjust volume, and switch curated study playlists directly from the Oblivion player without tab switching.
+
+### How does Google Calendar and Tasks integration work?
+Users can sign in with their Google account to grant read-only or task-management permissions. Oblivion displays upcoming calendar events directly on the dashboard and lets users check off Google Tasks in real time.
+
+### Is Oblivion free and open source?
+Yes, Oblivion is completely free to use and open source. The project is maintained on GitHub by Ayush Bhattacharya at https://github.com/itsjustayush/Oblivion.
+
+### What platforms and browsers does Oblivion support?
+Oblivion runs on all modern Evergreen browsers including Google Chrome, Mozilla Firefox, Apple Safari, Microsoft Edge, and Brave. It can also be installed as a standalone PWA application on desktop and mobile operating systems.

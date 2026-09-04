@@ -3311,6 +3311,7 @@ const App = () => {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black text-[#e0d8d0] font-sans selection:bg-[#e8702a]/30">
+      <h1 className="sr-only">Oblivion — Ambient Minimalist Pomodoro &amp; Focus Workspace</h1>
       <CustomCursor />
       <Toaster position="top-right" toastOptions={{ className: 'glass text-white border-white/20' }} />
 

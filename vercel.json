@@ -1,4 +1,7 @@
 {
+  "rewrites": [
+    { "source": "/status", "destination": "/status.html" }
+  ],
   "headers": [
     {
       "source": "/(.*)",
